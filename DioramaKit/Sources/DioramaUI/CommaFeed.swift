@@ -2,12 +2,16 @@
   import DioramaCore
   import DioramaLink
   import Foundation
+  import Observation
 
   /// The comma over the link: each frame it shows becomes the scene's drive message, and what the
   /// stop-line model sees in it the scene's segmentation and stop-line messages. Dials again a second
   /// after the link drops, for as long as it is started.
   @MainActor
+  @Observable
   public final class CommaFeed: DioramaFeed {
+    /// A comma has said hello and is streaming the drive: what keeps the screen on.
+    public private(set) var streaming = false
     public let host: String
     private let name: String
     private let model: StopLineModel?
@@ -21,6 +25,7 @@
     public func start(input: Bool, deliver: @escaping @MainActor @Sendable ([Data]) async -> Void) {
       stop()
       let (host, name, model) = (host, name, model)
+      let streaming: @MainActor @Sendable (Bool) -> Void = { [weak self] on in self?.streaming = on }
       task = Task.detached(priority: .userInitiated) {
         let runner = StopLineRunner(model: model)
         while !Task.isCancelled {
@@ -32,6 +37,7 @@
             if Task.isCancelled { break }
             switch event {
             case .hello(let layout, let camera, _, let comma):
+              await streaming(true)
               start = Date()
               var meta: [String: Any] = [
                 "version": 1, "fps": 20, "live": true,
@@ -53,6 +59,7 @@
               if input { waiting.append(DioramaPackets.input(frame: f.id, packed: [UInt8](f.packed))) }
               waiting += await runner.see(f)
             case .closed(let why):
+              await streaming(false)
               waiting.append(DioramaPackets.status("the link closed: \(why)"))
             }
             if !waiting.isEmpty {
@@ -61,6 +68,7 @@
             }
           }
           link.close()
+          await streaming(false)
           try? await Task.sleep(for: .seconds(1))
         }
       }
@@ -69,6 +77,7 @@
     public func stop() {
       task?.cancel()
       task = nil
+      streaming = false
     }
   }
 

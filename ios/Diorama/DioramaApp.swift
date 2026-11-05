@@ -1,6 +1,7 @@
 import DioramaLink
 import DioramaUI
 import SwiftUI
+import os
 
 @main
 struct DioramaApp: App {
@@ -22,8 +23,26 @@ enum CommaAddress {
   #endif
 }
 
+/// The screen stays on while the app is in front and has something to do: a comma streaming the drive (with Keep
+/// Screen On, the default), or a benchmark running. A locked iPhone suspends the app, which drops the comma's link
+/// and cuts a benchmark short. As jetlink's iPhone app does for its server and its Diorama tab.
+enum KeepAwake {
+  static let key = "keepScreenOn"
+
+  @MainActor
+  static func update(active: Bool, streaming: Bool, benchmarking: Bool) {
+    let keep = UserDefaults.standard.object(forKey: key) as? Bool ?? true
+    let on = active && (benchmarking || (keep && streaming))
+    if UIApplication.shared.isIdleTimerDisabled != on {
+      Logger(subsystem: "diorama", category: "app").info("keep the screen on: \(on ? "yes" : "no", privacy: .public)")
+    }
+    UIApplication.shared.isIdleTimerDisabled = on
+  }
+}
+
 struct RootView: View {
   @AppStorage(CommaAddress.key) private var host = CommaAddress.standard
+  @AppStorage(KeepAwake.key) private var keepScreenOn = true
   @State private var feed: CommaFeed?
   @State private var settings = false
   @Environment(\.scenePhase) private var phase
@@ -49,6 +68,14 @@ struct RootView: View {
     }
     .onAppear { connect() }
     .onChange(of: host) { connect() }
+    .onChange(of: phase) { keepAwake() }
+    .onChange(of: feed?.streaming) { keepAwake() }
+    .onChange(of: benchmark.running) { keepAwake() }
+    .onChange(of: keepScreenOn) { keepAwake() }
+  }
+
+  private func keepAwake() {
+    KeepAwake.update(active: phase == .active, streaming: feed?.streaming ?? false, benchmarking: benchmark.running)
   }
 
   private func connect() {
@@ -65,6 +92,7 @@ enum Models {
 
 struct SettingsView: View {
   @Binding var host: String
+  @AppStorage(KeepAwake.key) private var keepScreenOn = true
   @State private var draft = ""
   @Environment(\.dismiss) private var dismiss
 
@@ -81,6 +109,11 @@ struct SettingsView: View {
           Text("Comma")
         } footer: {
           Text("A Mac playing the comma (sim/commasim) is at its own address; the iOS Simulator reaches it at 127.0.0.1.")
+        }
+        Section {
+          Toggle("Keep Screen On", isOn: $keepScreenOn)
+        } footer: {
+          Text("While a comma streams the drive and Diorama is in front. A locked iPhone stops the drive until it is unlocked.")
         }
         Section("Stop-line model") {
           LabeledContent("Model", value: Models.stopLine == nil ? "not in this build" : StopLineModel.name)
