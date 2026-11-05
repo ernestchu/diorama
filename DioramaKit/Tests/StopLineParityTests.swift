@@ -34,3 +34,14 @@ import Testing
     #expect((lead == nil) == (got.lead == nil) || abs((lead?[0] ?? got.lead?.score ?? 0) - StopLineDecoder.leadScore) < 0.03)
   }
 }
+
+/// Core ML's plan for the model on this Mac: something runs it, and the shares add up. On Apple silicon the
+/// Neural Engine takes nearly all of it.
+@Test func placementIsReported() async throws {
+  let models = URL(filePath: #filePath).deletingLastPathComponent().appending(path: "../../models").standardized
+  let package = models.appending(path: "StoplinePilot.mlpackage")
+  guard FileManager.default.fileExists(atPath: package.path) else { return }
+  let placement = try #require(await StopLineModel.placement(url: try await MLModel.compileModel(at: package)))
+  #expect(abs(placement.shares.reduce(0) { $0 + $1.cost } - 1) < 1e-6)
+  #expect(placement.shares.first?.device == "Neural Engine")
+}

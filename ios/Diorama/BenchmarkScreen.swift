@@ -14,6 +14,23 @@ struct BenchmarkScreen: View {
       } footer: {
         Text("Run it with the iPhone charging and in its mount. The live view pauses while it runs.")
       }
+      Section {
+        if let placement = bench.placement {
+          ForEach(placement.shares) { share in
+            LabeledContent(share.device) {
+              Text("\(Int((share.cost * 100).rounded()))% · \(share.operations) operations").monospacedDigit()
+            }
+          }
+        } else {
+          Text("Core ML has not said.").foregroundStyle(.secondary)
+        }
+      } header: {
+        Text("Runs On")
+      } footer: {
+        Text(
+          "Core ML (ML Program, FP16) picks the processor for each operation. Each one's share of the model's work, by Core ML's own "
+            + (bench.placement?.byOperations == true ? "plan: it gives no cost estimates here, so the share is of the operations." : "estimate."))
+      }
       if let report = bench.report, !bench.running {
         Section("Verdict") { VerdictRow(report: report) }
         Section("Totals") { totals(report) }
@@ -25,6 +42,7 @@ struct BenchmarkScreen: View {
       }
     }
     .navigationTitle("Benchmark")
+    .task { await bench.loadPlacement() }
     .toolbar {
       if let report = bench.report, !bench.running {
         ShareLink(item: report.text, preview: SharePreview("Diorama Benchmark"))

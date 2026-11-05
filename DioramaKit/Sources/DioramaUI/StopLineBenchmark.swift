@@ -26,6 +26,8 @@
       public let thermalAtStart: ProcessInfo.ThermalState, thermalAtEnd: ProcessInfo.ThermalState
       public let windows: [Window]
       public let cancelled: Bool
+      /// Where Core ML ran the model, when it said.
+      public let placement: StopLineModel.Placement?
 
       public enum Verdict: Sendable { case fast, tight, slow }
       /// Slow: frames past the 50 ms budget, more than one in a thousand. Tight: the 99th percentile past 35 ms.
@@ -43,6 +45,7 @@
           "over 50 ms: \(over), over 35 ms: \(tight)",
           "thermal: \(thermalAtStart.label) to \(thermalAtEnd.label)",
         ]
+        if let placement { lines.append("runs on: \(placement.text) (Core ML)") }
         for w in windows {
           lines.append("\(w.id * 10)–\(w.id * 10 + 10) s: p50 \(f(w.p50)), p99 \(f(w.p99)), max \(f(w.max)), over \(w.over), \(w.thermal.label)")
         }
@@ -58,6 +61,9 @@
     public private(set) var p99: Double?
     public private(set) var report: Report?
     public private(set) var failure: String?
+    /// Where Core ML runs the model on this device; nil until loaded, or when Core ML does not say.
+    public private(set) var placement: StopLineModel.Placement?
+    private var placementLoaded = false
 
     private var task: Task<Void, Never>?
 
@@ -78,6 +84,13 @@
     }
 
     public func cancel() { task?.cancel() }
+
+    /// Asks Core ML once where it runs the model here.
+    public func loadPlacement() async {
+      guard !placementLoaded else { return }
+      placementLoaded = true
+      placement = await StopLineModel.placement()
+    }
 
     private func run(seconds: Double) async {
       defer { running = false }
@@ -132,7 +145,7 @@
         p50: Self.percentile(sorted, 0.5), p99: Self.percentile(sorted, 0.99), max: sorted.last ?? 0,
         over: times.filter { $0 > Self.budgetMs }.count, tight: times.filter { $0 > Self.tightMs }.count,
         thermalAtStart: thermalAtStart, thermalAtEnd: ProcessInfo.processInfo.thermalState, windows: windows,
-        cancelled: Task.isCancelled)
+        cancelled: Task.isCancelled, placement: placement)
     }
 
     private nonisolated static func window(_ i: Int, _ t: [Double]) -> Window {

@@ -12,10 +12,63 @@
     private let uv: MLMultiArray
     private var luma: CVPixelBuffer
 
+    public static var bundledURL: URL? { Bundle.main.url(forResource: name, withExtension: "mlmodelc") }
+
     /// The compiled model in the app's bundle, or nil when the app was built without it.
     public static func bundled() -> StopLineModel? {
-      guard let url = Bundle.main.url(forResource: name, withExtension: "mlmodelc") else { return nil }
+      guard let url = bundledURL else { return nil }
       return try? StopLineModel(url: url)
+    }
+
+    /// Where Core ML runs the model on this device: each processor's share of the work, from Core ML's own plan
+    /// (MLComputePlan) for the configuration the app runs it with. Constants and reshapes that run nowhere are left out.
+    public struct Placement: Sendable, Equatable {
+      public struct Share: Sendable, Equatable, Identifiable {
+        public let device: String
+        /// This device's part of the model, 0 to 1: of Core ML's estimated cost, or of the operations where Core ML
+        /// gives no estimates (the iOS Simulator).
+        public let cost: Double
+        public let operations: Int
+        public var id: String { device }
+      }
+      /// Most work first.
+      public let shares: [Share]
+      /// The shares are of the operations, not of the estimated cost: Core ML gave no estimates.
+      public var byOperations = false
+
+      public var text: String {
+        shares.map { "\($0.device) \(Int(($0.cost * 100).rounded()))% (\($0.operations) operations)" }.joined(separator: ", ")
+          + (byOperations ? ", by operations" : "")
+      }
+    }
+
+    public static func placement(url: URL? = bundledURL) async -> Placement? {
+      guard let url else { return nil }
+      let config = MLModelConfiguration()
+      config.computeUnits = .all
+      guard let plan = try? await MLComputePlan.load(contentsOf: url, configuration: config),
+        case .program(let program) = plan.modelStructure, let main = program.functions["main"]
+      else { return nil }
+      var cost: [String: Double] = [:]
+      var ops: [String: Int] = [:]
+      for op in main.block.operations {
+        let device: String
+        switch plan.deviceUsage(for: op)?.preferred {
+        case .neuralEngine: device = "Neural Engine"
+        case .gpu: device = "GPU"
+        case .cpu: device = "CPU"
+        default: continue  // a constant or a reshape: no device runs it
+        }
+        ops[device, default: 0] += 1
+        cost[device, default: 0] += plan.estimatedCost(of: op)?.weight ?? 0
+      }
+      let total = cost.values.reduce(0, +), count = Double(ops.values.reduce(0, +))
+      let byOperations = total <= 0
+      let shares = ops.keys.map { d in
+        Placement.Share(device: d, cost: byOperations ? Double(ops[d]!) / count : (cost[d] ?? 0) / total, operations: ops[d]!)
+      }
+      .sorted { ($0.cost, $0.operations) > ($1.cost, $1.operations) }
+      return shares.isEmpty ? nil : Placement(shares: shares, byOperations: byOperations)
     }
 
     public init(url: URL) throws {
