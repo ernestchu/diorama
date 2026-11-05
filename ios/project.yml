@@ -1,0 +1,54 @@
+# xcodegen spec for Diorama for iPhone. Regenerate with `xcodegen` here.
+# Signing comes from Config/Signing.xcconfig, and your own team and bundle
+# identifier from Config/Local.xcconfig beside it, which git ignores.
+name: Diorama
+options:
+  deploymentTarget: { iOS: "26.0" }
+  createIntermediateGroups: true
+packages:
+  DioramaKit:
+    path: ../DioramaKit
+settings:
+  base:
+    SWIFT_VERSION: "6.0"
+    SWIFT_STRICT_CONCURRENCY: complete
+    MARKETING_VERSION: "0.1"
+    CURRENT_PROJECT_VERSION: "1"
+    CODE_SIGN_STYLE: Automatic
+    TARGETED_DEVICE_FAMILY: "1,2"
+targets:
+  Diorama:
+    type: application
+    platform: iOS
+    configFiles:
+      Debug: Config/Signing.xcconfig
+      Release: Config/Signing.xcconfig
+    sources:
+      - path: Diorama
+      # the stop-line model, compiled by Xcode into StoplinePilot.mlmodelc; fetched, not committed (see README)
+      - path: ../models/StoplinePilot.mlpackage
+        optional: true
+    dependencies:
+      - package: DioramaKit
+        products: [DioramaCore, DioramaLink, DioramaUI]
+    info:
+      path: Resources/Info.plist
+      properties:
+        CFBundleName: Diorama
+        CFBundleDisplayName: Diorama
+        CFBundleIdentifier: $(PRODUCT_BUNDLE_IDENTIFIER)
+        CFBundleShortVersionString: $(MARKETING_VERSION)
+        CFBundleVersion: $(CURRENT_PROJECT_VERSION)
+        LSRequiresIPhoneOS: true
+        UILaunchScreen: {}
+        UIApplicationSceneManifest:
+          UIApplicationSupportsMultipleScenes: false
+        UISupportedInterfaceOrientations:
+          - UIInterfaceOrientationPortrait
+          - UIInterfaceOrientationLandscapeLeft
+          - UIInterfaceOrientationLandscapeRight
+        UIRequiredDeviceCapabilities: [arm64, metal]
+        # the comma is on the USB cable's network (192.168.60.1); a Mac playing it is on the local network
+        NSLocalNetworkUsageDescription: Diorama connects to your comma over the USB cable.
+        UIApplicationSupportsIndirectInputEvents: true
+        ITSAppUsesNonExemptEncryption: false

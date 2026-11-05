@@ -1,0 +1,8 @@
+// Signing for Diorama. The committed values build for no one in particular;
+// your own team and bundle identifier go in Local.xcconfig beside this file,
+// which git ignores (copy Local.xcconfig.example).
+
+DEVELOPMENT_TEAM =
+PRODUCT_BUNDLE_IDENTIFIER = io.diorama.app
+
+#include? "Local.xcconfig"

@@ -1,0 +1,9 @@
+[project]
+name = "commasim"
+version = "0.1.0"
+description = "A Mac playing the comma for the Diorama app: a recorded drive streamed as zoompilot streams a live one."
+requires-python = ">=3.11"
+dependencies = ["numpy", "onnxruntime", "onnx", "opencv-python-headless", "pycapnp", "zstandard"]
+
+[tool.uv]
+package = false

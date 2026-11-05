@@ -1,0 +1,10 @@
+.DS_Store
+.build/
+DerivedData/
+build/
+xcuserdata/
+ios/Config/Local.xcconfig
+models/
+sim/.venv/
+__pycache__/
+ios/build/

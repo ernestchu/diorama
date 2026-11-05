@@ -1,0 +1,380 @@
+// !$*UTF8*$!
+{
+	archiveVersion = 1;
+	classes = {
+	};
+	objectVersion = 77;
+	objects = {
+
+/* Begin PBXBuildFile section */
+		3EAA759677A0981B55A25428 /* StoplinePilot.mlpackage in Sources */ = {isa = PBXBuildFile; fileRef = D8E42CC3ED4B76ED81746590 /* StoplinePilot.mlpackage */; };
+		87D98365C11A47669EE852E0 /* DioramaUI in Frameworks */ = {isa = PBXBuildFile; productRef = AB1733AAAE833954D5F8338A /* DioramaUI */; };
+		8FE8FFADAEDC2061B51A1C81 /* DioramaCore in Frameworks */ = {isa = PBXBuildFile; productRef = 0D0B21583EFE8EF2F32A4E8F /* DioramaCore */; };
+		9ABA6CDE0014B9AC4CDF2ED8 /* DioramaLink in Frameworks */ = {isa = PBXBuildFile; productRef = 935F6D0D3D9D4890E153299C /* DioramaLink */; };
+		C1A9B7BDB7D189D7806ECE55 /* DioramaApp.swift in Sources */ = {isa = PBXBuildFile; fileRef = BB0DC74D0B6D50607976FC74 /* DioramaApp.swift */; };
+/* End PBXBuildFile section */
+
+/* Begin PBXFileReference section */
+		4B75AC794BB76253FFB69CC3 /* Signing.xcconfig */ = {isa = PBXFileReference; lastKnownFileType = text.xcconfig; path = Signing.xcconfig; sourceTree = "<group>"; };
+		6FE6E9BF8E7DDBD75479B214 /* Diorama.app */ = {isa = PBXFileReference; includeInIndex = 0; lastKnownFileType = wrapper.application; path = Diorama.app; sourceTree = BUILT_PRODUCTS_DIR; };
+		87921E1D899ADBA159E8AB48 /* DioramaKit */ = {isa = PBXFileReference; lastKnownFileType = folder; name = DioramaKit; path = ../DioramaKit; sourceTree = SOURCE_ROOT; };
+		BB0DC74D0B6D50607976FC74 /* DioramaApp.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = DioramaApp.swift; sourceTree = "<group>"; };
+		D8E42CC3ED4B76ED81746590 /* StoplinePilot.mlpackage */ = {isa = PBXFileReference; path = StoplinePilot.mlpackage; sourceTree = "<group>"; };
+/* End PBXFileReference section */
+
+/* Begin PBXFrameworksBuildPhase section */
+		522843B4E6ECF26BF338BAA7 /* Frameworks */ = {
+			isa = PBXFrameworksBuildPhase;
+			buildActionMask = 2147483647;
+			files = (
+				8FE8FFADAEDC2061B51A1C81 /* DioramaCore in Frameworks */,
+				9ABA6CDE0014B9AC4CDF2ED8 /* DioramaLink in Frameworks */,
+				87D98365C11A47669EE852E0 /* DioramaUI in Frameworks */,
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+		};
+/* End PBXFrameworksBuildPhase section */
+
+/* Begin PBXGroup section */
+		05D0E170029309C8B6391319 /* Products */ = {
+			isa = PBXGroup;
+			children = (
+				6FE6E9BF8E7DDBD75479B214 /* Diorama.app */,
+			);
+			name = Products;
+			sourceTree = "<group>";
+		};
+		077151099E785F16EACCC401 /* diorama */ = {
+			isa = PBXGroup;
+			children = (
+				EF4B3CBD9E67DEEC48147C03 /* models */,
+			);
+			name = diorama;
+			path = ..;
+			sourceTree = "<group>";
+		};
+		207141562F5965777BBE916C /* Config */ = {
+			isa = PBXGroup;
+			children = (
+				4B75AC794BB76253FFB69CC3 /* Signing.xcconfig */,
+			);
+			path = Config;
+			sourceTree = "<group>";
+		};
+		47E9F1B6DC739DD96FBA0A08 /* Packages */ = {
+			isa = PBXGroup;
+			children = (
+				87921E1D899ADBA159E8AB48 /* DioramaKit */,
+			);
+			name = Packages;
+			sourceTree = "<group>";
+		};
+		5B2C0C77FBB4A2A0035060EC /* Diorama */ = {
+			isa = PBXGroup;
+			children = (
+				BB0DC74D0B6D50607976FC74 /* DioramaApp.swift */,
+			);
+			path = Diorama;
+			sourceTree = "<group>";
+		};
+		EF4B3CBD9E67DEEC48147C03 /* models */ = {
+			isa = PBXGroup;
+			children = (
+				D8E42CC3ED4B76ED81746590 /* StoplinePilot.mlpackage */,
+			);
+			path = models;
+			sourceTree = "<group>";
+		};
+		F01D4DFF26A3FFBDD8F5F7D6 = {
+			isa = PBXGroup;
+			children = (
+				207141562F5965777BBE916C /* Config */,
+				5B2C0C77FBB4A2A0035060EC /* Diorama */,
+				077151099E785F16EACCC401 /* diorama */,
+				47E9F1B6DC739DD96FBA0A08 /* Packages */,
+				05D0E170029309C8B6391319 /* Products */,
+			);
+			sourceTree = "<group>";
+		};
+/* End PBXGroup section */
+
+/* Begin PBXNativeTarget section */
+		FD409BA823D8A8FC66B21CC7 /* Diorama */ = {
+			isa = PBXNativeTarget;
+			buildConfigurationList = 5E75AC80A40792B684498968 /* Build configuration list for PBXNativeTarget "Diorama" */;
+			buildPhases = (
+				54FBCEF6970BD3EB96513F1E /* Sources */,
+				522843B4E6ECF26BF338BAA7 /* Frameworks */,
+			);
+			buildRules = (
+			);
+			dependencies = (
+			);
+			name = Diorama;
+			packageProductDependencies = (
+				0D0B21583EFE8EF2F32A4E8F /* DioramaCore */,
+				935F6D0D3D9D4890E153299C /* DioramaLink */,
+				AB1733AAAE833954D5F8338A /* DioramaUI */,
+			);
+			productName = Diorama;
+			productReference = 6FE6E9BF8E7DDBD75479B214 /* Diorama.app */;
+			productType = "com.apple.product-type.application";
+		};
+/* End PBXNativeTarget section */
+
+/* Begin PBXProject section */
+		BB1792766E5293DE220C06CE /* Project object */ = {
+			isa = PBXProject;
+			attributes = {
+				BuildIndependentTargetsInParallel = YES;
+				LastUpgradeCheck = 1430;
+				TargetAttributes = {
+					FD409BA823D8A8FC66B21CC7 = {
+						DevelopmentTeam = "";
+						ProvisioningStyle = Automatic;
+					};
+				};
+			};
+			buildConfigurationList = 52FCBB4972F898F860D17E07 /* Build configuration list for PBXProject "Diorama" */;
+			developmentRegion = en;
+			hasScannedForEncodings = 0;
+			knownRegions = (
+				Base,
+				en,
+			);
+			mainGroup = F01D4DFF26A3FFBDD8F5F7D6;
+			minimizedProjectReferenceProxies = 1;
+			packageReferences = (
+				2197085E85B84C09EE359226 /* XCLocalSwiftPackageReference "../DioramaKit" */,
+			);
+			preferredProjectObjectVersion = 77;
+			productRefGroup = 05D0E170029309C8B6391319 /* Products */;
+			projectDirPath = "";
+			projectRoot = "";
+			targets = (
+				FD409BA823D8A8FC66B21CC7 /* Diorama */,
+			);
+		};
+/* End PBXProject section */
+
+/* Begin PBXSourcesBuildPhase section */
+		54FBCEF6970BD3EB96513F1E /* Sources */ = {
+			isa = PBXSourcesBuildPhase;
+			buildActionMask = 2147483647;
+			files = (
+				C1A9B7BDB7D189D7806ECE55 /* DioramaApp.swift in Sources */,
+				3EAA759677A0981B55A25428 /* StoplinePilot.mlpackage in Sources */,
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+		};
+/* End PBXSourcesBuildPhase section */
+
+/* Begin XCBuildConfiguration section */
+		50189625E43A57F0FFB81A3C /* Debug */ = {
+			isa = XCBuildConfiguration;
+			buildSettings = {
+				ALWAYS_SEARCH_USER_PATHS = NO;
+				CLANG_ANALYZER_NONNULL = YES;
+				CLANG_ANALYZER_NUMBER_OBJECT_CONVERSION = YES_AGGRESSIVE;
+				CLANG_CXX_LANGUAGE_STANDARD = "gnu++14";
+				CLANG_CXX_LIBRARY = "libc++";
+				CLANG_ENABLE_MODULES = YES;
+				CLANG_ENABLE_OBJC_ARC = YES;
+				CLANG_ENABLE_OBJC_WEAK = YES;
+				CLANG_WARN_BLOCK_CAPTURE_AUTORELEASING = YES;
+				CLANG_WARN_BOOL_CONVERSION = YES;
+				CLANG_WARN_COMMA = YES;
+				CLANG_WARN_CONSTANT_CONVERSION = YES;
+				CLANG_WARN_DEPRECATED_OBJC_IMPLEMENTATIONS = YES;
+				CLANG_WARN_DIRECT_OBJC_ISA_USAGE = YES_ERROR;
+				CLANG_WARN_DOCUMENTATION_COMMENTS = YES;
+				CLANG_WARN_EMPTY_BODY = YES;
+				CLANG_WARN_ENUM_CONVERSION = YES;
+				CLANG_WARN_INFINITE_RECURSION = YES;
+				CLANG_WARN_INT_CONVERSION = YES;
+				CLANG_WARN_NON_LITERAL_NULL_CONVERSION = YES;
+				CLANG_WARN_OBJC_IMPLICIT_RETAIN_SELF = YES;
+				CLANG_WARN_OBJC_LITERAL_CONVERSION = YES;
+				CLANG_WARN_OBJC_ROOT_CLASS = YES_ERROR;
+				CLANG_WARN_QUOTED_INCLUDE_IN_FRAMEWORK_HEADER = YES;
+				CLANG_WARN_RANGE_LOOP_ANALYSIS = YES;
+				CLANG_WARN_STRICT_PROTOTYPES = YES;
+				CLANG_WARN_SUSPICIOUS_MOVE = YES;
+				CLANG_WARN_UNGUARDED_AVAILABILITY = YES_AGGRESSIVE;
+				CLANG_WARN_UNREACHABLE_CODE = YES;
+				CLANG_WARN__DUPLICATE_METHOD_MATCH = YES;
+				CODE_SIGN_STYLE = Automatic;
+				COPY_PHASE_STRIP = NO;
+				CURRENT_PROJECT_VERSION = 1;
+				DEBUG_INFORMATION_FORMAT = dwarf;
+				ENABLE_STRICT_OBJC_MSGSEND = YES;
+				ENABLE_TESTABILITY = YES;
+				GCC_C_LANGUAGE_STANDARD = gnu11;
+				GCC_DYNAMIC_NO_PIC = NO;
+				GCC_NO_COMMON_BLOCKS = YES;
+				GCC_OPTIMIZATION_LEVEL = 0;
+				GCC_PREPROCESSOR_DEFINITIONS = (
+					"$(inherited)",
+					"DEBUG=1",
+				);
+				GCC_WARN_64_TO_32_BIT_CONVERSION = YES;
+				GCC_WARN_ABOUT_RETURN_TYPE = YES_ERROR;
+				GCC_WARN_UNDECLARED_SELECTOR = YES;
+				GCC_WARN_UNINITIALIZED_AUTOS = YES_AGGRESSIVE;
+				GCC_WARN_UNUSED_FUNCTION = YES;
+				GCC_WARN_UNUSED_VARIABLE = YES;
+				IPHONEOS_DEPLOYMENT_TARGET = 26.0;
+				MARKETING_VERSION = 0.1;
+				MTL_ENABLE_DEBUG_INFO = INCLUDE_SOURCE;
+				MTL_FAST_MATH = YES;
+				ONLY_ACTIVE_ARCH = YES;
+				PRODUCT_NAME = "$(TARGET_NAME)";
+				SDKROOT = iphoneos;
+				SWIFT_ACTIVE_COMPILATION_CONDITIONS = DEBUG;
+				SWIFT_OPTIMIZATION_LEVEL = "-Onone";
+				SWIFT_STRICT_CONCURRENCY = complete;
+				SWIFT_VERSION = 6.0;
+				TARGETED_DEVICE_FAMILY = "1,2";
+			};
+			name = Debug;
+		};
+		B5C80C8A9BDE6B861B8628CF /* Release */ = {
+			isa = XCBuildConfiguration;
+			buildSettings = {
+				ALWAYS_SEARCH_USER_PATHS = NO;
+				CLANG_ANALYZER_NONNULL = YES;
+				CLANG_ANALYZER_NUMBER_OBJECT_CONVERSION = YES_AGGRESSIVE;
+				CLANG_CXX_LANGUAGE_STANDARD = "gnu++14";
+				CLANG_CXX_LIBRARY = "libc++";
+				CLANG_ENABLE_MODULES = YES;
+				CLANG_ENABLE_OBJC_ARC = YES;
+				CLANG_ENABLE_OBJC_WEAK = YES;
+				CLANG_WARN_BLOCK_CAPTURE_AUTORELEASING = YES;
+				CLANG_WARN_BOOL_CONVERSION = YES;
+				CLANG_WARN_COMMA = YES;
+				CLANG_WARN_CONSTANT_CONVERSION = YES;
+				CLANG_WARN_DEPRECATED_OBJC_IMPLEMENTATIONS = YES;
+				CLANG_WARN_DIRECT_OBJC_ISA_USAGE = YES_ERROR;
+				CLANG_WARN_DOCUMENTATION_COMMENTS = YES;
+				CLANG_WARN_EMPTY_BODY = YES;
+				CLANG_WARN_ENUM_CONVERSION = YES;
+				CLANG_WARN_INFINITE_RECURSION = YES;
+				CLANG_WARN_INT_CONVERSION = YES;
+				CLANG_WARN_NON_LITERAL_NULL_CONVERSION = YES;
+				CLANG_WARN_OBJC_IMPLICIT_RETAIN_SELF = YES;
+				CLANG_WARN_OBJC_LITERAL_CONVERSION = YES;
+				CLANG_WARN_OBJC_ROOT_CLASS = YES_ERROR;
+				CLANG_WARN_QUOTED_INCLUDE_IN_FRAMEWORK_HEADER = YES;
+				CLANG_WARN_RANGE_LOOP_ANALYSIS = YES;
+				CLANG_WARN_STRICT_PROTOTYPES = YES;
+				CLANG_WARN_SUSPICIOUS_MOVE = YES;
+				CLANG_WARN_UNGUARDED_AVAILABILITY = YES_AGGRESSIVE;
+				CLANG_WARN_UNREACHABLE_CODE = YES;
+				CLANG_WARN__DUPLICATE_METHOD_MATCH = YES;
+				CODE_SIGN_STYLE = Automatic;
+				COPY_PHASE_STRIP = NO;
+				CURRENT_PROJECT_VERSION = 1;
+				DEBUG_INFORMATION_FORMAT = "dwarf-with-dsym";
+				ENABLE_NS_ASSERTIONS = NO;
+				ENABLE_STRICT_OBJC_MSGSEND = YES;
+				GCC_C_LANGUAGE_STANDARD = gnu11;
+				GCC_NO_COMMON_BLOCKS = YES;
+				GCC_WARN_64_TO_32_BIT_CONVERSION = YES;
+				GCC_WARN_ABOUT_RETURN_TYPE = YES_ERROR;
+				GCC_WARN_UNDECLARED_SELECTOR = YES;
+				GCC_WARN_UNINITIALIZED_AUTOS = YES_AGGRESSIVE;
+				GCC_WARN_UNUSED_FUNCTION = YES;
+				GCC_WARN_UNUSED_VARIABLE = YES;
+				IPHONEOS_DEPLOYMENT_TARGET = 26.0;
+				MARKETING_VERSION = 0.1;
+				MTL_ENABLE_DEBUG_INFO = NO;
+				MTL_FAST_MATH = YES;
+				PRODUCT_NAME = "$(TARGET_NAME)";
+				SDKROOT = iphoneos;
+				SWIFT_COMPILATION_MODE = wholemodule;
+				SWIFT_OPTIMIZATION_LEVEL = "-O";
+				SWIFT_STRICT_CONCURRENCY = complete;
+				SWIFT_VERSION = 6.0;
+				TARGETED_DEVICE_FAMILY = "1,2";
+			};
+			name = Release;
+		};
+		D15B01CBDCC4F529B110725F /* Release */ = {
+			isa = XCBuildConfiguration;
+			baseConfigurationReference = 4B75AC794BB76253FFB69CC3 /* Signing.xcconfig */;
+			buildSettings = {
+				ASSETCATALOG_COMPILER_APPICON_NAME = AppIcon;
+				CODE_SIGN_IDENTITY = "iPhone Developer";
+				INFOPLIST_FILE = Resources/Info.plist;
+				LD_RUNPATH_SEARCH_PATHS = (
+					"$(inherited)",
+					"@executable_path/Frameworks",
+				);
+				SDKROOT = iphoneos;
+				TARGETED_DEVICE_FAMILY = "1,2";
+			};
+			name = Release;
+		};
+		D6706B6AA23BABB6DD548C3B /* Debug */ = {
+			isa = XCBuildConfiguration;
+			baseConfigurationReference = 4B75AC794BB76253FFB69CC3 /* Signing.xcconfig */;
+			buildSettings = {
+				ASSETCATALOG_COMPILER_APPICON_NAME = AppIcon;
+				CODE_SIGN_IDENTITY = "iPhone Developer";
+				INFOPLIST_FILE = Resources/Info.plist;
+				LD_RUNPATH_SEARCH_PATHS = (
+					"$(inherited)",
+					"@executable_path/Frameworks",
+				);
+				SDKROOT = iphoneos;
+				TARGETED_DEVICE_FAMILY = "1,2";
+			};
+			name = Debug;
+		};
+/* End XCBuildConfiguration section */
+
+/* Begin XCConfigurationList section */
+		52FCBB4972F898F860D17E07 /* Build configuration list for PBXProject "Diorama" */ = {
+			isa = XCConfigurationList;
+			buildConfigurations = (
+				50189625E43A57F0FFB81A3C /* Debug */,
+				B5C80C8A9BDE6B861B8628CF /* Release */,
+			);
+			defaultConfigurationIsVisible = 0;
+			defaultConfigurationName = Debug;
+		};
+		5E75AC80A40792B684498968 /* Build configuration list for PBXNativeTarget "Diorama" */ = {
+			isa = XCConfigurationList;
+			buildConfigurations = (
+				D6706B6AA23BABB6DD548C3B /* Debug */,
+				D15B01CBDCC4F529B110725F /* Release */,
+			);
+			defaultConfigurationIsVisible = 0;
+			defaultConfigurationName = Debug;
+		};
+/* End XCConfigurationList section */
+
+/* Begin XCLocalSwiftPackageReference section */
+		2197085E85B84C09EE359226 /* XCLocalSwiftPackageReference "../DioramaKit" */ = {
+			isa = XCLocalSwiftPackageReference;
+			relativePath = ../DioramaKit;
+		};
+/* End XCLocalSwiftPackageReference section */
+
+/* Begin XCSwiftPackageProductDependency section */
+		0D0B21583EFE8EF2F32A4E8F /* DioramaCore */ = {
+			isa = XCSwiftPackageProductDependency;
+			productName = DioramaCore;
+		};
+		935F6D0D3D9D4890E153299C /* DioramaLink */ = {
+			isa = XCSwiftPackageProductDependency;
+			productName = DioramaLink;
+		};
+		AB1733AAAE833954D5F8338A /* DioramaUI */ = {
+			isa = XCSwiftPackageProductDependency;
+			productName = DioramaUI;
+		};
+/* End XCSwiftPackageProductDependency section */
+	};
+	rootObject = BB1792766E5293DE220C06CE /* Project object */;
+}
