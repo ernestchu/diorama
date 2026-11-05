@@ -31,6 +31,11 @@ A build without the model draws the drive with no stop lines.
     cd sim && uv sync
     uv run python -m commasim <drive's segments> --model <driving model .onnx>
 
+`commasim.as_dioramad` plays it through dioramad's own code instead (its warp,
+its modelV2 encoding, its link), less openpilot:
+
+    uv run python -m commasim.as_dioramad <drive's segments> --model <driving model .onnx>
+
 Run the app in the iOS Simulator: it dials `127.0.0.1:5600`, where commasim
 listens. An iPhone dials the comma on its cable (`192.168.60.1`); set the
 Mac's address in the app's Settings to have it watch commasim instead.
