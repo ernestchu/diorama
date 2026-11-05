@@ -7,3 +7,8 @@ dependencies = ["numpy", "onnxruntime", "onnx", "opencv-python-headless", "pycap
 
 [tool.uv]
 package = false
+
+[dependency-groups]
+dev = [
+    "pytest>=9.2.0",
+]

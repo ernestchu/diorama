@@ -13,7 +13,8 @@ public enum Wire {
   public static let packetMultiple = 512
   /// The comma at the far end of the iPhone's cable.
   public static let commaHost = "192.168.60.1"
-  public static let port: UInt16 = 5599
+  /// dioramad's, beside jetlink's 5599 on the same cable.
+  public static let port: UInt16 = 5600
 
   public enum Msg: UInt16, Sendable {
     case helloReq = 1, helloResp = 2, engineReq = 3, engineResp = 4

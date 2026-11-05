@@ -4,14 +4,14 @@ Copyright (c) 2026-, Ernie Chu.
 This file is part of diorama and is licensed under the MIT License.
 
 The comma, played by a Mac: a recorded drive streamed to the Diorama app as
-zoompilot streams a live one. It listens where the comma does (port 5599), and
+zoompilot streams a live one. It listens where dioramad does (port 5600), and
 once the phone dials it says hello with `show`, then sends every frame as an
 INFER_REQ flagged SHOW: the packed narrow frame and the driving model's heads
 (DESIGN.md). It runs the driving model itself, as the comma does.
 
     uv run python -m commasim ~/Downloads/jetlink/driving_footage --model ~/Downloads/driving_supercombo.onnx
 
-The iOS Simulator's app dials 127.0.0.1; an iPhone dials this Mac's address.
+The iOS Simulator's app dials 127.0.0.1:5600; an iPhone dials this Mac's address.
 """
 from __future__ import annotations
 
@@ -122,7 +122,7 @@ def main() -> None:
   ap.add_argument('--model', required=True, help='the driving model, ONNX (the comma\'s own)')
   ap.add_argument('--device', default='auto', choices=('auto', 'coreml', 'cpu', 'cuda'))
   ap.add_argument('--listen', default='0.0.0.0', help='address to listen on (default all)')
-  ap.add_argument('--port', type=int, default=5599)
+  ap.add_argument('--port', type=int, default=5600)
   ap.add_argument('--start', type=float, default=0.0, help='seconds into the drive')
   ap.add_argument('--seconds', type=float, help='how much of it (default all)')
   ap.add_argument('--once', action='store_true', help='play the drive once, not over and over')
