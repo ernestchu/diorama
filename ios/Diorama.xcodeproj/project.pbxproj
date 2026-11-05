@@ -8,6 +8,7 @@
 
 /* Begin PBXBuildFile section */
 		3EAA759677A0981B55A25428 /* StoplinePilot.mlpackage in Sources */ = {isa = PBXBuildFile; fileRef = D8E42CC3ED4B76ED81746590 /* StoplinePilot.mlpackage */; };
+		3FB734B62F278E4F6E1D117A /* BenchmarkScreen.swift in Sources */ = {isa = PBXBuildFile; fileRef = 4503371A152EB1EC3DD987D7 /* BenchmarkScreen.swift */; };
 		87D98365C11A47669EE852E0 /* DioramaUI in Frameworks */ = {isa = PBXBuildFile; productRef = AB1733AAAE833954D5F8338A /* DioramaUI */; };
 		8FE8FFADAEDC2061B51A1C81 /* DioramaCore in Frameworks */ = {isa = PBXBuildFile; productRef = 0D0B21583EFE8EF2F32A4E8F /* DioramaCore */; };
 		9ABA6CDE0014B9AC4CDF2ED8 /* DioramaLink in Frameworks */ = {isa = PBXBuildFile; productRef = 935F6D0D3D9D4890E153299C /* DioramaLink */; };
@@ -15,6 +16,7 @@
 /* End PBXBuildFile section */
 
 /* Begin PBXFileReference section */
+		4503371A152EB1EC3DD987D7 /* BenchmarkScreen.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = BenchmarkScreen.swift; sourceTree = "<group>"; };
 		4B75AC794BB76253FFB69CC3 /* Signing.xcconfig */ = {isa = PBXFileReference; lastKnownFileType = text.xcconfig; path = Signing.xcconfig; sourceTree = "<group>"; };
 		6FE6E9BF8E7DDBD75479B214 /* Diorama.app */ = {isa = PBXFileReference; includeInIndex = 0; lastKnownFileType = wrapper.application; path = Diorama.app; sourceTree = BUILT_PRODUCTS_DIR; };
 		87921E1D899ADBA159E8AB48 /* DioramaKit */ = {isa = PBXFileReference; lastKnownFileType = folder; name = DioramaKit; path = ../DioramaKit; sourceTree = SOURCE_ROOT; };
@@ -72,6 +74,7 @@
 		5B2C0C77FBB4A2A0035060EC /* Diorama */ = {
 			isa = PBXGroup;
 			children = (
+				4503371A152EB1EC3DD987D7 /* BenchmarkScreen.swift */,
 				BB0DC74D0B6D50607976FC74 /* DioramaApp.swift */,
 			);
 			path = Diorama;
@@ -162,6 +165,7 @@
 			isa = PBXSourcesBuildPhase;
 			buildActionMask = 2147483647;
 			files = (
+				3FB734B62F278E4F6E1D117A /* BenchmarkScreen.swift in Sources */,
 				C1A9B7BDB7D189D7806ECE55 /* DioramaApp.swift in Sources */,
 				3EAA759677A0981B55A25428 /* StoplinePilot.mlpackage in Sources */,
 			);

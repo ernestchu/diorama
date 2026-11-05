@@ -4,8 +4,10 @@ import SwiftUI
 
 @main
 struct DioramaApp: App {
+  @State private var benchmark = StopLineBenchmark()
+
   var body: some Scene {
-    WindowGroup { RootView() }
+    WindowGroup { RootView().environment(benchmark) }
   }
 }
 
@@ -25,11 +27,13 @@ struct RootView: View {
   @State private var feed: CommaFeed?
   @State private var settings = false
   @Environment(\.scenePhase) private var phase
+  @Environment(StopLineBenchmark.self) private var benchmark
 
   var body: some View {
     NavigationStack {
       Group {
-        if let feed, phase != .background {
+        // the live view stops while a benchmark runs, so the two never share the model's hardware
+        if let feed, phase != .background, !benchmark.running {
           DioramaSceneView(feed: feed)
         } else {
           Color.clear
@@ -83,6 +87,11 @@ struct SettingsView: View {
         }
         Section {
           NavigationLink("Set Up Camera…") { DioramaCameraSetup() }
+          NavigationLink {
+            BenchmarkScreen()
+          } label: {
+            Label("Benchmark", systemImage: "stopwatch")
+          }
         }
       }
       .navigationTitle("Settings")
