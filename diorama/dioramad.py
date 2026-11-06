@@ -54,11 +54,14 @@ def main() -> None:
   rpy = None
   warped: OrderedDict[int, np.ndarray] = OrderedDict()
   odometry = None
+  connected = False  # msgq's Python VisionIpcClient does not say; connect() does, once
 
   while True:
-    if not vipc.is_connected() and not vipc.connect(False):
-      sm.update(100)
-      continue
+    if not connected:
+      connected = vipc.connect(False)
+      if not connected:
+        sm.update(100)
+        continue
     buf = vipc.recv(50)
     sm.update(0)
 
