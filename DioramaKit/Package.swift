@@ -23,6 +23,8 @@ let package = Package(
     .target(
       name: "DioramaUI", dependencies: ["DioramaCore", "DioramaLink"],
       swiftSettings: [.unsafeFlags(["-O"], .when(configuration: .debug))]),
-    .testTarget(name: "DioramaKitTests", dependencies: ["DioramaCore", "DioramaLink", "DioramaUI"], path: "Tests"),
+    .testTarget(name: "DioramaKitTests", dependencies: ["DioramaCore", "DioramaLink", "DioramaUI"], path: "Tests",
+      // read in place through #filePath: the synthetic drive and the page's stills of it
+      exclude: ["Fixtures"]),
   ]
 )

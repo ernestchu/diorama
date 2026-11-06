@@ -6,19 +6,19 @@ import Testing
 
 /// DioramaScene against the page's own engine (web/page/diorama-engine.js, read from the repo, never copied), frame
 /// for frame over the same drive.diorama: the drawn plan, the pose, the lead, the stop line, the stripes, the view
-/// and the HUD, to 1e-6. The drive is made, not committed (web/tools/parity_drive.py writes models/parity-drive);
-/// without it the test does nothing.
+/// and the HUD, to 1e-6. The drive is synthetic (web/tools/synthetic_drive.py: cruising, a lead, a stop at a stop
+/// line, pulling away), with nothing from a real drive, and committed beside the test.
 @Test func sceneMatchesThePage() throws {
   let root = URL(filePath: #filePath).deletingLastPathComponent().appending(path: "../..").standardized
-  guard let drive = try? Data(contentsOf: root.appending(path: "models/parity-drive/drive.diorama")) else { return }
+  let drive = try Data(contentsOf: root.appending(path: "DioramaKit/Tests/Fixtures/synthetic/drive.diorama"))
   let engine = try String(contentsOf: root.appending(path: "web/page/diorama-engine.js"), encoding: .utf8)
 
   let page = try pageSnapshots(engine: engine, drive: drive)
   let app = appSnapshots(drive: drive)
   #expect(page.count == app.count, "the page has \(page.count) frames, the app \(app.count)")
-  #expect(page.count > 900)
+  #expect(page.count == 480)
 
-  var compared = 0, withStopLine = 0, withLead = 0, bird = 0
+  var compared = 0, withStopLine = 0, withLead = 0, bird = 0, road = 0
   for (want, got) in zip(page, app) {
     let frame = want["frame"] as? Int ?? -1
     if let field = firstDifference(want, got) {
@@ -28,13 +28,13 @@ import Testing
     compared += 1
     if want["stopLine"] is [Any] { withStopLine += 1 }
     if want["lead"] is [String: Any] { withLead += 1 }
-    if (want["view"] as? Double ?? 0) > 0.5 { bird += 1 }
+    if (want["view"] as? Double ?? 0) > 0.5 { bird += 1 } else { road += 1 }
   }
   // the drive exercises what the comparison is for
-  #expect(withStopLine > 20, "only \(withStopLine) frames with a stop line")
-  #expect(withLead > 20, "only \(withLead) frames with a lead")
-  #expect(bird > 0, "never in bird's-eye")
-  print("scene parity: \(compared) frames, \(withStopLine) with a stop line, \(withLead) with a lead, \(bird) in bird's-eye")
+  #expect(withStopLine > 100, "only \(withStopLine) frames with a stop line")
+  #expect(withLead > 50, "only \(withLead) frames with a lead")
+  #expect(bird > 100 && road > 100, "\(road) frames in the road view, \(bird) in bird's-eye")
+  print("scene parity: \(compared) frames, \(withStopLine) with a stop line, \(withLead) with a lead, \(road) road view, \(bird) bird's-eye")
 }
 
 /// The page's DioramaEngine.snapshot of every frame the drive steps it to.

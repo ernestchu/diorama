@@ -42,3 +42,13 @@ let a test hold the app to it:
 - `diorama.html?drive=drive.diorama&still=FRAME&view=road|bird` draws one frame alone, filling the window, with the
   page's own cameras. It then sets `window.dioramaStill` to the snapshot and the title to `still ready`.
   `tools/still.js` saves PNGs and snapshots headlessly.
+
+DioramaKit's tests (`sceneMatchesThePage`, `drawingMatchesThePage`) use both, on a synthetic drive with nothing from
+a real one: `tools/synthetic_drive.py` writes it (cruising, a lead, a stop at a stop line, pulling away), and the
+page's stills of it are committed beside it. After changing the page's drawing, make them again:
+
+    python tools/synthetic_drive.py ../DioramaKit/Tests/Fixtures/synthetic/drive.diorama
+    python -m dioramaweb view ../DioramaKit/Tests/Fixtures/synthetic --no-browser --port 8643 &
+    cd tools && CHROME="/Applications/Google Chrome.app/Contents/MacOS/Google Chrome" \
+      node still.js http://127.0.0.1:8643/ ../../DioramaKit/Tests/Fixtures/synthetic/stills 60,150,220,300,380 road,bird
+    rm ../../DioramaKit/Tests/Fixtures/synthetic/stills/*.json

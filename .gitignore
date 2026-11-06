@@ -18,3 +18,5 @@ train/site/prefill.json
 *.onnx
 *.npz
 *.diorama
+# the parity tests' synthetic drive: made up, nothing from a real one (web/tools/synthetic_drive.py)
+!DioramaKit/Tests/Fixtures/synthetic/drive.diorama
