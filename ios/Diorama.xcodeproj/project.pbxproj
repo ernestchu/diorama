@@ -13,15 +13,17 @@
 		8FE8FFADAEDC2061B51A1C81 /* DioramaCore in Frameworks */ = {isa = PBXBuildFile; productRef = 0D0B21583EFE8EF2F32A4E8F /* DioramaCore */; };
 		9ABA6CDE0014B9AC4CDF2ED8 /* DioramaLink in Frameworks */ = {isa = PBXBuildFile; productRef = 935F6D0D3D9D4890E153299C /* DioramaLink */; };
 		C1A9B7BDB7D189D7806ECE55 /* DioramaApp.swift in Sources */ = {isa = PBXBuildFile; fileRef = BB0DC74D0B6D50607976FC74 /* DioramaApp.swift */; };
+		D29CE8ED821DB6054B0E7B08 /* AppIcon.icon in Resources */ = {isa = PBXBuildFile; fileRef = 3873F748D939BDEAA5AC687D /* AppIcon.icon */; };
 /* End PBXBuildFile section */
 
 /* Begin PBXFileReference section */
+		3873F748D939BDEAA5AC687D /* AppIcon.icon */ = {isa = PBXFileReference; lastKnownFileType = wrapper.icon; path = AppIcon.icon; sourceTree = "<group>"; };
 		4503371A152EB1EC3DD987D7 /* BenchmarkScreen.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = BenchmarkScreen.swift; sourceTree = "<group>"; };
 		4B75AC794BB76253FFB69CC3 /* Signing.xcconfig */ = {isa = PBXFileReference; lastKnownFileType = text.xcconfig; path = Signing.xcconfig; sourceTree = "<group>"; };
-		6FE6E9BF8E7DDBD75479B214 /* Diorama.app */ = {isa = PBXFileReference; explicitFileType = wrapper.application; includeInIndex = 0; path = Diorama.app; sourceTree = BUILT_PRODUCTS_DIR; };
+		6FE6E9BF8E7DDBD75479B214 /* Diorama.app */ = {isa = PBXFileReference; includeInIndex = 0; lastKnownFileType = wrapper.application; path = Diorama.app; sourceTree = BUILT_PRODUCTS_DIR; };
 		87921E1D899ADBA159E8AB48 /* DioramaKit */ = {isa = PBXFileReference; lastKnownFileType = folder; name = DioramaKit; path = ../DioramaKit; sourceTree = SOURCE_ROOT; };
 		BB0DC74D0B6D50607976FC74 /* DioramaApp.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = DioramaApp.swift; sourceTree = "<group>"; };
-		D8E42CC3ED4B76ED81746590 /* StoplinePilot.mlpackage */ = {isa = PBXFileReference; lastKnownFileType = folder.mlpackage; path = StoplinePilot.mlpackage; sourceTree = "<group>"; };
+		D8E42CC3ED4B76ED81746590 /* StoplinePilot.mlpackage */ = {isa = PBXFileReference; path = StoplinePilot.mlpackage; sourceTree = "<group>"; };
 /* End PBXFileReference section */
 
 /* Begin PBXFrameworksBuildPhase section */
@@ -74,6 +76,7 @@
 		5B2C0C77FBB4A2A0035060EC /* Diorama */ = {
 			isa = PBXGroup;
 			children = (
+				3873F748D939BDEAA5AC687D /* AppIcon.icon */,
 				4503371A152EB1EC3DD987D7 /* BenchmarkScreen.swift */,
 				BB0DC74D0B6D50607976FC74 /* DioramaApp.swift */,
 			);
@@ -107,6 +110,7 @@
 			buildConfigurationList = 5E75AC80A40792B684498968 /* Build configuration list for PBXNativeTarget "Diorama" */;
 			buildPhases = (
 				54FBCEF6970BD3EB96513F1E /* Sources */,
+				6E87AB3A215372FBDB518CF8 /* Resources */,
 				522843B4E6ECF26BF338BAA7 /* Frameworks */,
 			);
 			buildRules = (
@@ -133,6 +137,7 @@
 				LastUpgradeCheck = 1430;
 				TargetAttributes = {
 					FD409BA823D8A8FC66B21CC7 = {
+						DevelopmentTeam = "";
 						ProvisioningStyle = Automatic;
 					};
 				};
@@ -159,6 +164,17 @@
 		};
 /* End PBXProject section */
 
+/* Begin PBXResourcesBuildPhase section */
+		6E87AB3A215372FBDB518CF8 /* Resources */ = {
+			isa = PBXResourcesBuildPhase;
+			buildActionMask = 2147483647;
+			files = (
+				D29CE8ED821DB6054B0E7B08 /* AppIcon.icon in Resources */,
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+		};
+/* End PBXResourcesBuildPhase section */
+
 /* Begin PBXSourcesBuildPhase section */
 		54FBCEF6970BD3EB96513F1E /* Sources */ = {
 			isa = PBXSourcesBuildPhase;
@@ -177,6 +193,7 @@
 			isa = XCBuildConfiguration;
 			buildSettings = {
 				ALWAYS_SEARCH_USER_PATHS = NO;
+				ASSETCATALOG_COMPILER_APPICON_NAME = AppIcon;
 				CLANG_ANALYZER_NONNULL = YES;
 				CLANG_ANALYZER_NUMBER_OBJECT_CONVERSION = YES_AGGRESSIVE;
 				CLANG_CXX_LANGUAGE_STANDARD = "gnu++14";
@@ -245,6 +262,7 @@
 			isa = XCBuildConfiguration;
 			buildSettings = {
 				ALWAYS_SEARCH_USER_PATHS = NO;
+				ASSETCATALOG_COMPILER_APPICON_NAME = AppIcon;
 				CLANG_ANALYZER_NONNULL = YES;
 				CLANG_ANALYZER_NUMBER_OBJECT_CONVERSION = YES_AGGRESSIVE;
 				CLANG_CXX_LANGUAGE_STANDARD = "gnu++14";
@@ -308,7 +326,6 @@
 			buildSettings = {
 				ASSETCATALOG_COMPILER_APPICON_NAME = AppIcon;
 				CODE_SIGN_IDENTITY = "iPhone Developer";
-				DEVELOPMENT_TEAM = 56PU95294C;
 				INFOPLIST_FILE = Resources/Info.plist;
 				LD_RUNPATH_SEARCH_PATHS = (
 					"$(inherited)",
@@ -325,7 +342,6 @@
 			buildSettings = {
 				ASSETCATALOG_COMPILER_APPICON_NAME = AppIcon;
 				CODE_SIGN_IDENTITY = "iPhone Developer";
-				DEVELOPMENT_TEAM = 56PU95294C;
 				INFOPLIST_FILE = Resources/Info.plist;
 				LD_RUNPATH_SEARCH_PATHS = (
 					"$(inherited)",
