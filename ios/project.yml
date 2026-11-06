@@ -16,6 +16,8 @@ settings:
     CURRENT_PROJECT_VERSION: "1"
     CODE_SIGN_STYLE: Automatic
     TARGETED_DEVICE_FAMILY: "1,2"
+    # the app icon is Diorama/AppIcon.icon (Icon Composer): SVG layers, compiled by Xcode 26
+    ASSETCATALOG_COMPILER_APPICON_NAME: AppIcon
 targets:
   Diorama:
     type: application
@@ -25,6 +27,11 @@ targets:
       Release: Config/Signing.xcconfig
     sources:
       - path: Diorama
+        excludes: ["AppIcon.icon", "AppIcon.icon/**"]
+      # one file to Xcode, as Icon Composer saves it, not a group of its SVGs
+      - path: Diorama/AppIcon.icon
+        type: file
+        buildPhase: resources
       # the stop-line model, compiled by Xcode into StoplinePilot.mlmodelc; fetched, not committed (see README)
       - path: ../models/StoplinePilot.mlpackage
         optional: true
