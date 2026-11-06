@@ -43,9 +43,9 @@ public final class CommaLink: @unchecked Sendable {
     let tcp = NWProtocolTCP.Options()
     tcp.noDelay = true
     tcp.connectionTimeout = 3
+    // no interface required: the comma's address is reachable only over the cable's network, whose route iOS adds,
+    // and iOS need not class that USB network as wired Ethernet (jetlink's app dials it with a plain socket)
     let params = NWParameters(tls: nil, tcp: tcp)
-    // over the cable's network interface, never Wi-Fi or cellular, unless dialing the Mac standing in for the comma
-    if host == Wire.commaHost { params.requiredInterfaceType = .wiredEthernet }
     let c = NWConnection(host: NWEndpoint.Host(host), port: NWEndpoint.Port(rawValue: port)!, using: params)
     connection = c
     c.stateUpdateHandler = { [weak self] state in

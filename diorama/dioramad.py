@@ -30,14 +30,23 @@ NICE = 10
 
 
 def main() -> None:
-  from cereal import messaging
-  from msgq.visionipc import VisionIpcClient, VisionStreamType
+  from msgq.visionipc import VisionIpcClient
   from openpilot.common.swaglog import cloudlog
   from openpilot.common.transformations.camera import DEVICE_CAMERAS
+  try:  # zoompilot keeps cereal inside the openpilot package
+    import openpilot.cereal.messaging as messaging
+    from openpilot.cereal.services import SERVICE_LIST
+    from openpilot.cereal.visionipc import VisionStreamType
+  except ImportError:  # stock openpilot's layout
+    from cereal import messaging
+    from cereal.services import SERVICE_LIST
+    from msgq.visionipc import VisionStreamType
+  # calibrationd's message: extrinsicsCalibration in zoompilot, liveCalibration in stock openpilot; the same fields
+  calibration = 'extrinsicsCalibration' if 'extrinsicsCalibration' in SERVICE_LIST else 'liveCalibration'
 
   os.nice(NICE)  # the car's processes first
   viewer = Viewer(log=cloudlog)
-  sm = messaging.SubMaster(['modelV2', 'cameraOdometry', 'liveCalibration', 'deviceState', 'narrowRoadCameraState'])
+  sm = messaging.SubMaster(['modelV2', 'cameraOdometry', calibration, 'deviceState', 'narrowRoadCameraState'])
   vipc = VisionIpcClient('camerad', VisionStreamType.VISION_STREAM_NARROW_ROAD, True)
 
   warp: Warp | None = None
@@ -53,8 +62,8 @@ def main() -> None:
     buf = vipc.recv(50)
     sm.update(0)
 
-    if sm.updated['liveCalibration']:
-      cal = sm['liveCalibration']
+    if sm.updated[calibration]:
+      cal = sm[calibration]
       if str(cal.calStatus) == 'calibrated' and len(cal.rpyCalib) == 3 and len(cal.height) == 1:
         rpy = tuple(float(v) for v in cal.rpyCalib)
         viewer.camera = {'height': float(cal.height[0]), 'wide_from_device_euler': [float(v) for v in cal.wideFromDeviceEuler]}

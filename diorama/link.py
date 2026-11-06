@@ -73,7 +73,8 @@ class Viewer:
       if srv is None:
         try:
           # the cable's address exists only while the iOS gadget is up: try again until it is
-          srv = socket.create_server((self.host, self.port), reuse_port=True)
+          # not SO_REUSEPORT: a second dioramad must fail to listen, not split the phone's dials with the first
+          srv = socket.create_server((self.host, self.port))
           srv.settimeout(1.0)
           self._say(f'listening on {self.host}:{self.port}')
         except OSError:
