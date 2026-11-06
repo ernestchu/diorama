@@ -65,8 +65,20 @@ public enum StopLineDecoder {
       let cx = Float(x) + at(lead, 1, y, x), cy = Float(y) + at(lead, 2, y, x)
       let w = at(lead, 3, y, x) * whScale, h = at(lead, 4, y, x) * whScale
       box = Box(score: lead[arg], x1: (cx - w / 2) * stride, y1: (cy - h / 2) * stride, x2: (cx + w / 2) * stride, y2: (cy + h / 2) * stride)
+      if let b = box, sideOn(b) { box = nil }
     }
     return (found, box)
+  }
+
+  /// The lead's box is a car crossing ahead, seen side-on, not one in the lane (diorama/stopline.py's `side_on`): from
+  /// 8 m out, wider than 1.9 times its height or than 3 m, wider than any car's rear. Its distance is its bottom's on a
+  /// flat road (f 910, horizon at 47.6, the camera 1.25 m up). A near car fills the landscape frame and its box is
+  /// wide whichever way it faces, so the test never applies under 8 m or to a box the frame's bottom cuts.
+  public static func sideOn(_ b: Box) -> Bool {
+    let horizon: Float = 47.6, f: Float = 910
+    guard b.y2 < 250 && b.y2 > horizon else { return false }
+    let d = 1.25 * f / (b.y2 - horizon), w = b.x2 - b.x1
+    return d >= 8 && (w > 1.9 * (b.y2 - b.y1) || w * d / f > 3.0)
   }
 
   /// The packed narrow frame's four Y sub-planes as the 512x256 luma image the model takes.
