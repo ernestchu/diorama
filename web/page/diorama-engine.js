@@ -74,12 +74,26 @@
   }
 
   // ---------------------------------------------------------------- messages
+  // UTF-8 bytes -> string, without TextDecoder (JavaScriptCore, which the app's tests run this in, has none)
+  function utf8(u8) {
+    let s = '';
+    for (let i = 0; i < u8.length;) {
+      const c = u8[i++];
+      let cp = c;
+      if (c >= 0xf0) cp = ((c & 7) << 18) | ((u8[i++] & 63) << 12) | ((u8[i++] & 63) << 6) | (u8[i++] & 63);
+      else if (c >= 0xe0) cp = ((c & 15) << 12) | ((u8[i++] & 63) << 6) | (u8[i++] & 63);
+      else if (c >= 0xc0) cp = ((c & 31) << 6) | (u8[i++] & 63);
+      s += String.fromCodePoint(cp);
+    }
+    return s;
+  }
+
   function decode(buf) {
     const dv = new DataView(buf.buffer || buf, buf.byteOffset || 0, buf.byteLength);
     const kind = String.fromCharCode(dv.getUint8(0));
     const u8 = new Uint8Array(dv.buffer, dv.byteOffset, dv.byteLength);
-    if (kind === 'M') return { kind, meta: JSON.parse(new TextDecoder().decode(u8.subarray(1))) };
-    if (kind === 'T') return { kind, text: new TextDecoder().decode(u8.subarray(1)) };
+    if (kind === 'M') return { kind, meta: JSON.parse(utf8(u8.subarray(1))) };
+    if (kind === 'T') return { kind, text: utf8(u8.subarray(1)) };
     if (kind === 'I') {
       const w = dv.getUint16(5, true), h = dv.getUint16(7, true), planes = dv.getUint8(9);
       return { kind, frame: dv.getUint32(1, true), w, h, packed: u8.subarray(10, 10 + w * h * planes) };
