@@ -15,7 +15,7 @@ import numpy as np, cv2
 
 from c1m import Segment
 import build_c1m
-from build_c1m import split_of, choose_lead
+from build_c1m import split_of, choose_lead_near
 from cams import FrameCam
 from prop import Poses
 from paths import C1M, LABELS, META
@@ -94,9 +94,9 @@ if __name__ == '__main__':
         key, j = names[fid]
         p, m = plans[key]
         cam = FrameCam()
-        lead, _ = choose_lead(bx, np.array(out[fid]['path']), cam)
+        lead, _, amb = choose_lead_near(bx, np.array(out[fid]['path']), cam)
         items[fid] = {'split': split_of(key), 'sid': key, 'kind': 'passed', 'past': p[j], 'device': m['device'],
-                      'status': 'none', 'lines': [], 'lead': lead, 'dist_to_stop': None,
+                      'status': 'none', 'lines': [], 'lead': lead, 'ambiguous': amb, 'dist_to_stop': None,
                       'vehicles': [[round(v / 2, 1) for v in b[:4]] + [round(b[4], 3)] for b in bx], 'dir': f'{OUT}/yuv'}
         if len(sheet) < 24 and hash(fid) % 9 == 0:
           sheet.append((fid, out[fid]['rgb'], p[j], lead))

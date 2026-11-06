@@ -17,7 +17,10 @@ comma1M's `data/` folder) or keep the defaults under `./work`.
   Only devices with both cameras' video (no comma twos).
 - **Pretraining**: the SLSDNet stop-line dataset, unzipped into `$SLSD_RAW`.
 - **Leads** come from a detector, D-FINE (`teacher.py`): the nearest vehicle on the path the car went on to drive
-  (`build_c1m.py`).
+  (`build_c1m.py`, `choose_lead_near`). A vehicle cut by the frame's bottom across its middle is the lead whatever the
+  path does next: that close it blocks the car, even if the car later turns or pulls round it. A box filling the
+  whole frame is mostly the detector's mistake on a dark or blurred road; such frames are marked `ambiguous` and the
+  lead loss skips them.
 
 Your own drives are for trying the model (`web/`), not for training.
 
@@ -42,28 +45,41 @@ to check on the site.
     sh pretrain.sh      # prep.py and prep_color.py first: SLSDNet, three seeds
     sh train.sh         # builds the frames, then comma1M from the pretrained weights, three seeds
 
-`train.sh` builds three sets of frames:
+`train.sh` builds four sets of frames:
 - `build_c1m.py`: the labelled frames, re-rendered from the camera's own YUV, with the lead chosen.
 - `pass_c1m.py`: frames 2 to 15 m past each labelled line, as no line.
 - `fast_c1m.py`: frames above 40 mph, as no line.
+- `mine_near.py`: slow frames (below 5 m/s) with the teacher's lead, many of them close enough to fill the view. The
+  labelled frames hold almost no such leads. Their stop lines are not labelled, so they train the lead head only.
 
-It then trains with `train_c1m.py --passed --fast`.
+It then trains with `train_c1m.py --passed --fast --near`.
 
 To read the results:
 - `compare_c1m.py runs/<name>` gives the mean and spread over seeds.
 - `rowscore_c1m.py` scores lines by their row, which is what sets the distance.
 - `eval_c1m.py` re-scores saved checkpoints on the current test set.
+- `eval_near.py runs/<name>/<name>-s*` scores the lead boxes on the slow frames' test split, by the lead's size.
 
 The split is by segment: about one segment in five is test, never trained on.
 
 ## Export
 
-    python export.py $STOPLINE_WORK/runs/fast/fast-s0/last.pt out/
+    python export.py $STOPLINE_WORK/runs/near/near-s0/last.pt out/
 
 This writes two files:
 - `StoplinePilot.mlpackage`: ML program, fp16. Y is a grayscale image, UV an fp16 tensor, and the heat maps go through
   sigmoid in the graph.
 - `stopline_pilot.onnx`: the same model as ONNX.
 
-Both go in the repo's `models/`. The app and `sim/stopline_parity.py` read them from there, and
-`python -m dioramaweb run --stopline` takes the ONNX.
+## Publish
+
+    python publish.py $STOPLINE_WORK/runs/near/near-s0/last.pt --note "what changed"
+
+exports the checkpoint and uploads both files, zipped Core ML, to the Hugging Face model repo
+[ernestchu/diorama](https://huggingface.co/ernestchu/diorama) with a `manifest.json` (version, note, sha256 of each
+file), tagged `v<version>`. The app fetches the latest from there; models are not bundled with it. It needs a
+`hf auth login` with write access to the repo.
+
+For development, put the two files in the repo's `models/` (`hf download ernestchu/diorama --local-dir models`, then
+unzip the package). `sim/stopline_parity.py` reads them there, and `python -m dioramaweb run --stopline` takes the
+ONNX.

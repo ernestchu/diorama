@@ -50,8 +50,8 @@ def ego_path(seg, i):
 def path_lateral(path, d):
   """Lateral offset of the path at forward distance d, extended straight along its last heading."""
   fwd = path[:, 0]
-  if len(path) >= 2 and fwd[-1] >= d:
-    k = int(np.searchsorted(fwd, d))
+  if len(path) >= 2 and fwd.max() >= d:
+    k = int(np.argmax(fwd >= d))  # the first crossing: the path can turn round and come back later
     k = min(max(k, 1), len(path) - 1)
     a, b = path[k - 1], path[k]
     t = (d - a[0]) / max(1e-6, b[0] - a[0])
@@ -79,6 +79,32 @@ def choose_lead(boxes, path, cam, scale=2.0):
     if d <= MAX_LEAD and abs(off) <= LANE_HALF and not side_on and not turned and (best is None or d < best[0]):
       best = (d, [x1 / scale, y1 / scale, x2 / scale, y2 / scale])
   return (best[1] if best else None), info
+
+
+NEAR_ROW = 250      # a box reaching this row (of 256) is cut by the frame's bottom: the vehicle is within ~6 m
+NEAR_BAND = 20      # ... and is the lead when it covers the centre columns 256 +- this, whatever the path does next
+FULL = (500, 240)   # boxes this wide and tall are mostly the teacher's false positives on dark or blurred road
+
+
+def choose_lead_near(boxes, path, cam, scale=2.0):
+  """choose_lead, but a vehicle cut by the frame's bottom across the centre columns is the lead outright: at that range
+  it blocks the car whether or not the driven path later turns or pulls round it. Returns (lead, info, ambiguous):
+  ambiguous when a full-frame box is the nearest candidate, which the teacher alone can't settle."""
+  lead, info = choose_lead(boxes, path, cam, scale)
+  near, ambiguous = None, False
+  for x1, y1, x2, y2, s in boxes:
+    x1, y1, x2, y2 = x1 / scale, y1 / scale, x2 / scale, y2 / scale
+    if y2 < NEAR_ROW or x1 > cam.cx - NEAR_BAND or x2 < cam.cx + NEAR_BAND:
+      continue
+    if x2 - x1 >= FULL[0] and y2 - y1 >= FULL[1]:
+      ambiguous = True; continue
+    if (x2 - x1) > MAX_ASPECT * (y2 - y1):
+      continue
+    if near is None or (x2 - x1) * (y2 - y1) > (near[2] - near[0]) * (near[3] - near[1]):
+      near = [x1, y1, x2, y2]
+  if near is not None:
+    return near, info, False
+  return lead, info, ambiguous and lead is None
 
 
 def render(job):
@@ -134,10 +160,10 @@ if __name__ == '__main__':
         lab, m = store[fid], meta[fid]
         path = np.array(out[fid]['path'])
         cam = FrameCam()
-        lead, info = choose_lead(bx, path, cam)
+        lead, info, amb = choose_lead_near(bx, path, cam)
         items[fid] = {'split': split_of(m['sid']), 'sid': m['sid'], 'kind': m['kind'], 'device': m['device'],
                       'status': lab['status'], 'lines': lab['lines'],
-                      'dist_to_stop': m['dist_to_stop'], 'lead': lead,
+                      'dist_to_stop': m['dist_to_stop'], 'lead': lead, 'ambiguous': amb,
                       'vehicles': [[round(v / 2, 1) for v in b[:4]] + [round(b[4], 3)] for b in bx],
                       'ground': info, 'path': path[::4].round(2).tolist()}
         if len(sheet) < 24 and len(sheet) < len(items) and (lead or len(sheet) % 3 == 0):

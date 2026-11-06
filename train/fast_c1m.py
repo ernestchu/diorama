@@ -11,7 +11,7 @@ import numpy as np, cv2
 
 from c1m import Segment
 import build_c1m
-from build_c1m import split_of, choose_lead
+from build_c1m import split_of, choose_lead_near
 from cams import FrameCam
 from paths import C1M, COMMA1M as DATA, META
 
@@ -49,9 +49,9 @@ if __name__ == '__main__':
       boxes = teacher([cv2.cvtColor(out[f]['rgb'], cv2.COLOR_BGR2RGB) for f in fids])
       for fid, bx in zip(fids, boxes):
         sid = fid.split('_')[0]
-        lead, _ = choose_lead(bx, np.array(out[fid]['path']), cam)
+        lead, _, amb = choose_lead_near(bx, np.array(out[fid]['path']), cam)
         items[fid] = {'split': split_of(sid), 'sid': sid, 'kind': 'fast', 'device': stops[sid]['device'], 'status': 'none',
-                      'lines': [], 'lead': lead, 'dist_to_stop': None,
+                      'lines': [], 'lead': lead, 'ambiguous': amb, 'dist_to_stop': None,
                       'vehicles': [[round(v / 2, 1) for v in b[:4]] + [round(b[4], 3)] for b in bx], 'dir': f'{OUT}/yuv'}
         if len(sheet) < 24 and hash(fid) % 20 == 0:
           sheet.append((fid, out[fid]['rgb'], lead))

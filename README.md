@@ -15,12 +15,14 @@ How it fits together, and the link it speaks: [DESIGN.md](DESIGN.md).
 | `sim` | `commasim`, a Mac playing the comma with a recorded drive |
 | `train` | the stop-line model's training: labelling, data, training, export ([train/README.md](train/README.md)) |
 | `web` | the drive in a Linux browser, for development ([web/README.md](web/README.md)) |
-| `models` | the stop-line model, fetched, not committed |
+| `models` | the stop-line model for tests and the Linux path, downloaded from Hugging Face, not committed |
 
 ## Set up
 
-The stop-line model (Core ML), `StoplinePilot.mlpackage`, unzipped into
-`models/`. It is not in the repo; ask for a copy.
+The stop-line model is published on Hugging Face, [ernestchu/diorama](https://huggingface.co/ernestchu/diorama)
+(`train/publish.py`), with a `manifest.json` giving its version. For the tests and the Linux path:
+
+    hf download ernestchu/diorama --local-dir models && unzip -o models/StoplinePilot.mlpackage.zip -d models
 
 Then the app:
 

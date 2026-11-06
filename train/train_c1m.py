@@ -20,12 +20,14 @@ CAM = FrameCam()
 
 
 class C1M(Dataset):
-  def __init__(self, split, train, frac=1.0, passed=False, fast=False):
+  def __init__(self, split, train, frac=1.0, passed=False, fast=False, near=False):
     items = json.load(open(f'{DATA}/items.json'))
     if passed:  # frames just past a labelled stop line, with none (pass_c1m.py); in both splits
       items.update(json.load(open(f'{DATA}/pass_items.json')))
     if fast:  # frames above 40 mph, with none (fast_c1m.py); in both splits
       items.update(json.load(open(f'{DATA}/fast_items.json')))
+    if near and split == 'train':  # slow frames with the teacher's lead, lines unlabelled (mine_near.py)
+      items.update(json.load(open(f'{DATA}/near_items.json')))
     self.items = [(k, v) for k, v in sorted(items.items()) if v['split'] == split]
     if frac < 1.0:  # a fixed, nested share of the drives: every smaller share is inside every larger one
       sids = sorted({v['sid'] for _, v in self.items}, key=lambda s: hashlib.sha1(('frac' + s).encode()).hexdigest())
@@ -57,7 +59,7 @@ class C1M(Dataset):
     out = cv2.warpAffine(img, a[:2], (W, H), flags=cv2.INTER_AREA, borderMode=cv2.BORDER_REPLICATE)
     pt = lambda x, y: (a[0, 0] * 2 * x + a[0, 1] * 2 * y + a[0, 2], a[1, 0] * 2 * x + a[1, 1] * 2 * y + a[1, 2])
 
-    lines, line_ok = [], 1.0
+    lines, line_ok = [], (0.0 if v.get('line_unknown') else 1.0)
     for l in v['lines']:
       (ax, ay), (bx, by) = pt(l[0], l[1]), pt(l[2], l[3])
       c = clip_segment(ax, ay, bx, by)
@@ -66,7 +68,7 @@ class C1M(Dataset):
         lines.append(c if c[0] <= c[2] else [c[2], c[3], c[0], c[1]])
       elif c is not None:
         line_ok = 0.0
-    lead, lead_ok = None, 1.0
+    lead, lead_ok = None, (0.0 if v.get('ambiguous') else 1.0)  # ambiguous: a full-frame teacher box, unsettled
     if v['lead'] is not None:
       x1, y1, x2, y2 = v['lead']
       ps = np.array([pt(x1, y1), pt(x2, y1), pt(x1, y2), pt(x2, y2)])
@@ -187,7 +189,7 @@ def evaluate(model, ds, device):
       for n, d in enumerate(decode_all(line.cpu(), lead.cpu())):
         v = dict(ds.items)[names[n]]
         recs.append({'name': names[n], 'kind': v['kind'],
-                     'gl': [list(map(float, l)) for l in v['lines']], 'gc': v['lead'], **d})
+                     'gl': [list(map(float, l)) for l in v['lines']], 'gc': v['lead'], 'amb': v.get('ambiguous', False), **d})
   model.train()
   return recs
 
@@ -221,6 +223,7 @@ def score(recs, subset=lambda r: True):
                          'n_gt': ngt}
     tp = fp = fn = 0; ious = []
     for r in rs:
+      if r.get('amb'): continue
       p = r['lead'] if r['lead'][0] >= th else None
       g = r['gc']
       if p and g:
@@ -247,6 +250,7 @@ def main():
   ap.add_argument('--frac', type=float, default=1.0, help='share of the training drives to use')
   ap.add_argument('--passed', action='store_true', help='add the frames just past a labelled stop line, as no line')
   ap.add_argument('--fast', action='store_true', help='add frames above 40 mph, as no line')
+  ap.add_argument('--near', action='store_true', help='add slow frames with near leads, for the lead head only')
   args = ap.parse_args()
   dist.init_process_group('nccl')
   rank = dist.get_rank()
@@ -256,7 +260,7 @@ def main():
   torch.manual_seed(s0); random.seed(s0); np.random.seed(s0)
   os.makedirs(args.out, exist_ok=True)
 
-  train = C1M('train', True, args.frac, args.passed, args.fast)
+  train = C1M('train', True, args.frac, args.passed, args.fast, args.near)
   if rank == 0: print('training frames', len(train), flush=True)
   sampler = DistributedSampler(train, shuffle=True)
   dl = DataLoader(train, args.bs, sampler=sampler, num_workers=8, drop_last=True, pin_memory=True,
