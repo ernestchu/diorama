@@ -39,6 +39,12 @@ LINE_SCORE = 0.3      # a line counts from here (the test set's best F1)
 LEAD_SCORE = 0.3
 STRIDE, END_SCALE, WH_SCALE = 4, 32.0, 16.0  # the model's output cells (train/model.py)
 DS = 2                # the seg message's query map at half the frame's resolution
+# A box seen side-on is a vehicle crossing or turning in front, not the lead: wider than SIDE_ASPECT x its height, or
+# wider on the road than any vehicle's rear (SIDE_WIDTH m, from the flat-road distance of its bottom). Only from
+# SIDE_NEAR m out, and never for a box cut by the frame's bottom (from row NEAR_ROW): a vehicle close ahead fills the
+# landscape frame, its box clipped to it, and looks side-on whichever way it faces.
+SIDE_ASPECT, SIDE_WIDTH, SIDE_NEAR, NEAR_ROW = 1.9, 3.0, 8.0, 250.0
+F, CY, HGT = 910.0, 47.6, 1.25  # the model frame's focal length and horizon row, and the camera's nominal height [m]
 
 
 def stoplines(frame: int, wide: bool, lines: list[list[float]]) -> bytes:
@@ -53,9 +59,18 @@ def unpack(packed: np.ndarray) -> tuple[np.ndarray, np.ndarray]:
   return y, packed[4:6].astype(np.float32)
 
 
+def side_on(x1: float, y1: float, x2: float, y2: float) -> bool:
+  """Is this lead box a vehicle seen side-on (see SIDE_ASPECT)?"""
+  if y2 >= NEAR_ROW or y2 <= CY:
+    return False
+  d = HGT * F / (y2 - CY)
+  w = x2 - x1
+  return d >= SIDE_NEAR and (w > SIDE_ASPECT * (y2 - y1) or w * d / F > SIDE_WIDTH)
+
+
 def decode(line: np.ndarray, lead: np.ndarray) -> tuple[list[list[float]], list[float] | None]:
   """One frame's maps (heat maps already through sigmoid) -> stop lines [score, x1, y1, x2, y2] above LINE_SCORE, and
-  the lead [score, box] or None."""
+  the lead [score, box] or None (also None when the box is side-on)."""
   lh = line[0]
   gh, gw = lh.shape
   pad = np.pad(lh, 2, constant_values=-1)
@@ -76,7 +91,10 @@ def decode(line: np.ndarray, lead: np.ndarray) -> tuple[list[list[float]], list[
     return lines, None
   cx, cy = x + lead[1, y, x], y + lead[2, y, x]
   w, h = lead[3:5, y, x] * WH_SCALE
-  return lines, [float(ch.flat[i])] + [float(v * STRIDE) for v in (cx - w / 2, cy - h / 2, cx + w / 2, cy + h / 2)]
+  box = [float(v * STRIDE) for v in (cx - w / 2, cy - h / 2, cx + w / 2, cy + h / 2)]
+  if side_on(*box):
+    return lines, None
+  return lines, [float(ch.flat[i])] + box
 
 
 class StoplineModels:
