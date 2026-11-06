@@ -23,6 +23,6 @@ let package = Package(
     .target(
       name: "DioramaUI", dependencies: ["DioramaCore", "DioramaLink"],
       swiftSettings: [.unsafeFlags(["-O"], .when(configuration: .debug))]),
-    .testTarget(name: "DioramaKitTests", dependencies: ["DioramaCore", "DioramaLink", "DioramaUI"], path: "Tests", resources: [.copy("Fixtures")]),
+    .testTarget(name: "DioramaKitTests", dependencies: ["DioramaCore", "DioramaLink", "DioramaUI"], path: "Tests"),
   ]
 )

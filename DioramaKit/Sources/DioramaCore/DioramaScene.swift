@@ -639,7 +639,8 @@ public final class DioramaScene {
 
     // stop lines, from the pose of the frame each was seen in
     for (seenAt, lines) in pendingLines {
-      if let seen = trail.pose(seenAt) { stopLines.observe(seenAt, seen, lines, cam) }
+      // seen from that frame's pose, and counted as seen now (the frame stepping), as the page does
+      if let seen = trail.pose(seenAt) { stopLines.observe(k, seen, lines, cam) }
     }
     pendingLines = []
 
@@ -676,7 +677,8 @@ public final class DioramaScene {
     let speed = self.speed.map { 0.9 * $0 + 0.1 * v } ?? v
     self.speed = speed
     let pose = SIMD3(pNow.x, pNow.y, pNow.yaw)
-    let target = chooser.step(chooser.cue(speed, px, py, pv, stripes, pose, lead), speed)
+    // the stop line counts as a crossing ahead, as the page's stripes carry it
+    let target = chooser.step(chooser.cue(speed, px, py, pv, stripes + (stopLine.map { [$0] } ?? []), pose, lead), speed)
     let stepS = Diorama.dt / panSeconds
     if let view {
       let sign: Double = target > view ? 1 : target < view ? -1 : 0
