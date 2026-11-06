@@ -1,0 +1,8 @@
+{
+  "name": "diorama-web-tools",
+  "private": true,
+  "description": "Headless renders of the Diorama page",
+  "dependencies": {
+    "puppeteer-core": "^23.11.1"
+  }
+}

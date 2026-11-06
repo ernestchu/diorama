@@ -13,6 +13,8 @@ How it fits together, and the link it speaks: [DESIGN.md](DESIGN.md).
 | `ios` | the iPhone app (xcodegen) |
 | `diorama` | `dioramad`, the comma's side: zoompilot pins this repo and runs it |
 | `sim` | `commasim`, a Mac playing the comma with a recorded drive |
+| `train` | the stop-line model's training: labelling, data, training, export ([train/README.md](train/README.md)) |
+| `web` | the drive in a Linux browser, for development ([web/README.md](web/README.md)) |
 | `models` | the stop-line model, fetched, not committed |
 
 ## Set up
@@ -25,6 +27,7 @@ Then the app:
     cd ios && xcodegen && open Diorama.xcodeproj
 
 A build without the model draws the drive with no stop lines.
+To make the model, see [train/README.md](train/README.md); `export.py` writes both files.
 
 ## Develop on a Mac, without a comma
 
@@ -39,6 +42,12 @@ its modelV2 encoding, its link), less openpilot:
 Run the app in the iOS Simulator: it dials `127.0.0.1:5600`, where commasim
 listens. An iPhone dials the comma on its cable (`192.168.60.1`); set the
 Mac's address in the app's Settings to have it watch commasim instead.
+
+## Develop on Linux
+
+Train the stop-line model with `train/`. Try it on a recorded drive in the browser with `web/`: the same driving
+model, stop-line model and tracker, drawn by the page Diorama started from. No data, labels or checkpoints are in the
+repo.
 
 ## Tests
 

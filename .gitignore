@@ -8,3 +8,13 @@ models/
 sim/.venv/
 __pycache__/
 ios/build/
+node_modules/
+work/
+train/site/frames/
+train/site/manifest.json
+train/site/prefill.json
+*.pt
+*.mlpackage
+*.onnx
+*.npz
+*.diorama

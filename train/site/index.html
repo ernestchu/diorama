@@ -1,0 +1,61 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no, viewport-fit=cover">
+<meta name="robots" content="noindex, nofollow">
+<title>Stop-line Labeler</title>
+<link rel="stylesheet" href="style.css?v=41ce9113">
+</head>
+<body>
+<header>
+  <div class="progress"><span id="progress">…</span><span id="frameId" class="dim"></span></div>
+  <div class="hbuttons">
+    <button id="helpBtn" title="How to label">?</button>
+    <button id="downloadBtn" class="primary" title="Download this session's labels">Download</button>
+  </div>
+</header>
+
+<main id="stage">
+  <canvas id="view"></canvas>
+  <canvas id="loupe" width="160" height="160"></canvas>
+  <div id="badge"></div>
+  <div id="empty" hidden>
+    <p>Nothing left to check in this batch.</p>
+    <p class="dim">Download your labels and send the file over; the next update brings new frames.</p>
+  </div>
+</main>
+
+<footer>
+  <button id="prevBtn" title="Previous frame (←)">◀</button>
+  <button id="fwdBtn" title="Next frame, labelled or not (→)">▶</button>
+  <button id="undoBtn" title="Undo (Z)">Undo</button>
+  <button id="delBtn" title="Delete the selected line (Delete)" disabled>Delete</button>
+  <button id="noneBtn" title="No stop line in this frame (N)">No line</button>
+  <button id="nextBtn" class="primary" title="Save and go to the next unlabelled frame (Enter)">Next ▶</button>
+</footer>
+
+<dialog id="help">
+  <h2>Labelling stop lines</h2>
+  <p>Draw the stop line <b>in your own lane only</b>, as one straight line from one lane boundary to the other. A frame has <b>at most one</b> stop line: drawing a new one replaces it. Only the two end points count.</p>
+  <p>Frames may arrive with a suggested label. <span style="color:#3ddc84">Green</span>: the driving model's lane boundaries. <span style="color:#ff6b6b">Dashed red</span>: the line as labelled before, across all lanes. <span style="color:#ff9f1c">Orange</span>: the lead car. <b>V</b> hides these. A frame counts once you press Next, or No line, or change it.</p>
+  <table>
+    <tr><th></th><th>Phone / tablet</th><th>Mouse / trackpad</th></tr>
+    <tr><td>Draw a line</td><td>Drag with one finger</td><td>Click and drag</td></tr>
+    <tr><td>Move an end</td><td colspan="2">Drag its dot</td></tr>
+    <tr><td>Select the line</td><td colspan="2">Tap or click it, then Delete</td></tr>
+    <tr><td>Zoom</td><td>Pinch</td><td>Wheel or pinch</td></tr>
+    <tr><td>Pan</td><td>Two fingers</td><td>Right-drag, or hold Space and drag</td></tr>
+    <tr><td>Reset view</td><td>Double-tap</td><td>Double-click, or 0</td></tr>
+  </table>
+  <p><b>Next</b> (Enter) saves the line and jumps to the next frame still to check; <b>◀ ▶</b> (← →) step one frame at a time, without confirming anything. <b>No line</b> (N) marks a frame without a stop line. Labels stay in this browser until you press <b>Download</b>; send me that file.</p>
+  <p class="dim" id="sessionInfo"></p>
+  <div class="dbuttons">
+    <button id="clearBtn" class="danger">Start a new session…</button>
+    <button id="closeHelp" class="primary">OK</button>
+  </div>
+</dialog>
+
+<script src="app.js?v=926be995"></script>
+</body>
+</html>
