@@ -8,7 +8,9 @@ public struct DioramaStopLine: Sendable, Equatable {
   }
 }
 
-/// The stop lines held in the world, as diorama-engine.js's StopLines. The model gives at most one line a frame, the
+/// The stop lines held in the world, as diorama-engine.js's StopLines. Each sighting is first fitted to the ego lane
+/// (egoLane, fitToLane): near, the frame's edges cut the model's line short, and farther out it runs into the next
+/// lanes, so its ends are moved along it to the lane's boundaries. The model gives at most one line a frame, the
 /// ego lane's, so a sighting whose middle is within `same` m of a held line's along the road (and `side` m across), as
 /// the car sees it then, is that line, whatever its angle: the held line's middle, heading and length move 0.3 of the
 /// way to it. Held lines that come that close merge, the more seen keeping its place. Only the nearest line ahead seen
@@ -35,6 +37,41 @@ struct DioramaStopLines {
     return [c * dx + s * dy, -s * dx + c * dy]
   }
 
+  /// The ego lane's two boundaries this frame, left then right, each 33 road points (X_IDXS, y): lane line 1 or 2, or the
+  /// road edge where it lies inside the line. No probability gate: at an intersection the lines' probabilities fall to
+  /// about 0.05, but where the model puts them still bounds the lane (the training labels were cut the same way). Nil
+  /// without lane lines or road edges.
+  static func egoLane(_ out: DioramaOutputs) -> [[SIMD2<Double>]]? {
+    let n = Diorama.idxN
+    guard out.laneLines.count >= 4 * n * 2, out.roadEdges.count >= 2 * n * 2 else { return nil }
+    return (0..<2).map { side in
+      (0..<n).map { i in
+        let ly = DioramaOutputs.line(out.laneLines, 1 + side, i, 0), ey = DioramaOutputs.line(out.roadEdges, side, i, 0)
+        let inside = side == 1 ? ey < ly : ey > ly  // left: the edge right of the line; right: left of it
+        return SIMD2(Diorama.xIdxs[i], inside ? ey : ly)
+      }
+    }
+  }
+
+  /// The line A-B (road points, in the frame the boundaries are in) fitted to the lane: moved along its own extension to
+  /// where it crosses the two boundaries, or nil where it does not cross both. No clamping: it can grow or shrink.
+  static func fitToLane(_ A: SIMD2<Double>, _ B: SIMD2<Double>, _ bounds: [[SIMD2<Double>]]) -> (SIMD2<Double>, SIMD2<Double>)? {
+    let d = B - A, dd = d.x * d.x + d.y * d.y
+    guard dd >= 1e-6 else { return nil }
+    let ts: [Double?] = bounds.map { c in
+      let s = c.map { p in (p.x - A.x) * -d.y + (p.y - A.y) * d.x }  // which side of the line each point is
+      for i in 0..<(c.count - 1) where s[i] == 0 || s[i] * s[i + 1] < 0 {
+        let f = s[i] / (s[i] - s[i + 1])
+        let p = c[i] + f * (c[i + 1] - c[i])
+        return ((p.x - A.x) * d.x + (p.y - A.y) * d.y) / dd
+      }
+      return nil
+    }
+    guard let t0 = ts[0], let t1 = ts[1], t0 != t1 else { return nil }
+    let (lo, hi) = (min(t0, t1), max(t0, t1))
+    return (A + lo * d, A + hi * d)
+  }
+
   /// d less the nearest whole half turn, rounding as Math.round does.
   static func halfTurn(_ d: Double) -> Double { d - .pi * (d / .pi + 0.5).rounded(.down) }
 
@@ -44,8 +81,11 @@ struct DioramaStopLines {
     h.len += w * (len - h.len)
   }
 
-  /// The lines seen in frame `k`, from that frame's pose, through the narrow frame's camera.
-  mutating func observe(_ k: Int, _ pose: Pose, _ lines: [DioramaStopLine], _ cam: DioramaFrameCamera) {
+  /// The lines seen from `pose` (the frame they were seen in) through the narrow frame's camera, counted as seen at frame
+  /// `k`. With `bounds` (egoLane in frame k's road frame, the car at `now`), each is first fitted to the ego lane.
+  mutating func observe(
+    _ k: Int, _ pose: Pose, _ lines: [DioramaStopLine], _ cam: DioramaFrameCamera, now: Pose? = nil, bounds: [[SIMD2<Double>]]? = nil
+  ) {
     func isSame(_ h: Held, _ x: Double, _ y: Double) -> Bool {
       let e = Self.worldToEgo(pose, h.m)
       return abs(e.x - x) < Self.same && abs(e.y - y) < Self.side
@@ -53,9 +93,13 @@ struct DioramaStopLines {
     for l in lines {
       guard let A = cam.groundHit(l.x1, l.y1, cam.height), let B = cam.groundHit(l.x2, l.y2, cam.height), (A.0 + B.0) / 2 <= Self.maxAhead
       else { continue }
-      let a = Self.egoToWorld(pose, A.0, A.1), b = Self.egoToWorld(pose, B.0, B.1)
+      var a = Self.egoToWorld(pose, A.0, A.1), b = Self.egoToWorld(pose, B.0, B.1)
+      if let bounds, let now, let fit = Self.fitToLane(Self.worldToEgo(now, a), Self.worldToEgo(now, b), bounds) {
+        // the boundaries are in this frame's road frame, the sighting in its own frame's
+        (a, b) = (Self.egoToWorld(now, fit.0.x, fit.0.y), Self.egoToWorld(now, fit.1.x, fit.1.y))
+      }
       let m = (a + b) / 2, ang = atan2(b.y - a.y, b.x - a.x), len = ((b.x - a.x) * (b.x - a.x) + (b.y - a.y) * (b.y - a.y)).squareRoot()
-      let x = (A.0 + B.0) / 2, y = (A.1 + B.1) / 2
+      let mid = Self.worldToEgo(pose, m), x = mid.x, y = mid.y
       // the most seen of the held lines it matches, the first of them on a tie (a stable sort, as the page's)
       var best: Int? = nil
       for i in held.indices where isSame(held[i], x, y) {

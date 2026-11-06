@@ -637,10 +637,12 @@ public final class DioramaScene {
       lastSeg = (segMsg.frame, seg)
     }
 
-    // stop lines, from the pose of the frame each was seen in
+    // stop lines, from the pose of the frame each was seen in, fitted to this frame's ego lane
+    let bounds = pendingLines.isEmpty ? nil : DioramaStopLines.egoLane(out)
+    let now = trail.pose(k)!
     for (seenAt, lines) in pendingLines {
       // seen from that frame's pose, and counted as seen now (the frame stepping), as the page does
-      if let seen = trail.pose(seenAt) { stopLines.observe(k, seen, lines, cam) }
+      if let seen = trail.pose(seenAt) { stopLines.observe(k, seen, lines, cam, now: now, bounds: bounds) }
     }
     pendingLines = []
 
