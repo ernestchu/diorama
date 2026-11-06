@@ -12,11 +12,9 @@
     private let uv: MLMultiArray
     private var luma: CVPixelBuffer
 
-    public static var bundledURL: URL? { Bundle.main.url(forResource: name, withExtension: "mlmodelc") }
-
-    /// The compiled model in the app's bundle, or nil when the app was built without it.
-    public static func bundled() -> StopLineModel? {
-      guard let url = bundledURL else { return nil }
+    /// The model downloaded from Hugging Face (StopLineStore), or nil before the first download.
+    public static func installed() -> StopLineModel? {
+      guard let url = StopLineStore.shared.installed()?.url else { return nil }
       return try? StopLineModel(url: url)
     }
 
@@ -42,7 +40,7 @@
       }
     }
 
-    public static func placement(url: URL? = bundledURL) async -> Placement? {
+    public static func placement(url: URL? = StopLineStore.shared.installed()?.url) async -> Placement? {
       guard let url else { return nil }
       let config = MLModelConfiguration()
       config.computeUnits = .all

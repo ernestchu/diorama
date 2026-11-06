@@ -93,9 +93,9 @@ struct BenchmarkScreen: View {
           .buttonStyle(.glass)
         }
         .controlSize(.large)
-        .disabled(Models.stopLine == nil)
-        if Models.stopLine == nil {
-          Text("There is no stop-line model in this build.").font(.footnote).foregroundStyle(.orange)
+        .disabled(Models.shared.stopLine == nil)
+        if Models.shared.stopLine == nil {
+          Text("The stop-line model has not been downloaded yet.").font(.footnote).foregroundStyle(.orange)
         }
       }
       if let failure = bench.failure {

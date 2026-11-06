@@ -7,7 +7,6 @@
 	objects = {
 
 /* Begin PBXBuildFile section */
-		3EAA759677A0981B55A25428 /* StoplinePilot.mlpackage in Sources */ = {isa = PBXBuildFile; fileRef = D8E42CC3ED4B76ED81746590 /* StoplinePilot.mlpackage */; };
 		3FB734B62F278E4F6E1D117A /* BenchmarkScreen.swift in Sources */ = {isa = PBXBuildFile; fileRef = 4503371A152EB1EC3DD987D7 /* BenchmarkScreen.swift */; };
 		87D98365C11A47669EE852E0 /* DioramaUI in Frameworks */ = {isa = PBXBuildFile; productRef = AB1733AAAE833954D5F8338A /* DioramaUI */; };
 		8FE8FFADAEDC2061B51A1C81 /* DioramaCore in Frameworks */ = {isa = PBXBuildFile; productRef = 0D0B21583EFE8EF2F32A4E8F /* DioramaCore */; };
@@ -23,7 +22,6 @@
 		6FE6E9BF8E7DDBD75479B214 /* Diorama.app */ = {isa = PBXFileReference; includeInIndex = 0; lastKnownFileType = wrapper.application; path = Diorama.app; sourceTree = BUILT_PRODUCTS_DIR; };
 		87921E1D899ADBA159E8AB48 /* DioramaKit */ = {isa = PBXFileReference; lastKnownFileType = folder; name = DioramaKit; path = ../DioramaKit; sourceTree = SOURCE_ROOT; };
 		BB0DC74D0B6D50607976FC74 /* DioramaApp.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = DioramaApp.swift; sourceTree = "<group>"; };
-		D8E42CC3ED4B76ED81746590 /* StoplinePilot.mlpackage */ = {isa = PBXFileReference; path = StoplinePilot.mlpackage; sourceTree = "<group>"; };
 /* End PBXFileReference section */
 
 /* Begin PBXFrameworksBuildPhase section */
@@ -46,15 +44,6 @@
 				6FE6E9BF8E7DDBD75479B214 /* Diorama.app */,
 			);
 			name = Products;
-			sourceTree = "<group>";
-		};
-		077151099E785F16EACCC401 /* diorama */ = {
-			isa = PBXGroup;
-			children = (
-				EF4B3CBD9E67DEEC48147C03 /* models */,
-			);
-			name = diorama;
-			path = ..;
 			sourceTree = "<group>";
 		};
 		207141562F5965777BBE916C /* Config */ = {
@@ -83,20 +72,11 @@
 			path = Diorama;
 			sourceTree = "<group>";
 		};
-		EF4B3CBD9E67DEEC48147C03 /* models */ = {
-			isa = PBXGroup;
-			children = (
-				D8E42CC3ED4B76ED81746590 /* StoplinePilot.mlpackage */,
-			);
-			path = models;
-			sourceTree = "<group>";
-		};
 		F01D4DFF26A3FFBDD8F5F7D6 = {
 			isa = PBXGroup;
 			children = (
 				207141562F5965777BBE916C /* Config */,
 				5B2C0C77FBB4A2A0035060EC /* Diorama */,
-				077151099E785F16EACCC401 /* diorama */,
 				47E9F1B6DC739DD96FBA0A08 /* Packages */,
 				05D0E170029309C8B6391319 /* Products */,
 			);
@@ -182,7 +162,6 @@
 			files = (
 				3FB734B62F278E4F6E1D117A /* BenchmarkScreen.swift in Sources */,
 				C1A9B7BDB7D189D7806ECE55 /* DioramaApp.swift in Sources */,
-				3EAA759677A0981B55A25428 /* StoplinePilot.mlpackage in Sources */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};

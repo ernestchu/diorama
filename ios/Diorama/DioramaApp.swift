@@ -47,6 +47,7 @@ struct RootView: View {
   @State private var settings = false
   @Environment(\.scenePhase) private var phase
   @Environment(StopLineBenchmark.self) private var benchmark
+  private let models = Models.shared
 
   var body: some View {
     NavigationStack {
@@ -66,9 +67,17 @@ struct RootView: View {
       }
       .sheet(isPresented: $settings) { SettingsView(host: $host) }
     }
-    .onAppear { connect() }
+    .onAppear {
+      connect()
+      models.start()
+    }
     .onChange(of: host) { connect() }
-    .onChange(of: phase) { keepAwake() }
+    .onChange(of: phase) {
+      keepAwake()
+      if phase == .active { Task { await models.refresh() } }
+    }
+    // a new model is taken up by the next connection; the first one at once, as there was none
+    .onChange(of: models.version) { if feed?.streaming != true || feed?.model == nil { connect() } }
     .onChange(of: feed?.streaming) { keepAwake() }
     .onChange(of: benchmark.running) { keepAwake() }
     .onChange(of: keepScreenOn) { keepAwake() }
@@ -80,20 +89,63 @@ struct RootView: View {
 
   private func connect() {
     feed?.stop()
-    feed = CommaFeed(host: host, name: UIDevice.current.name, model: Models.stopLine)
+    feed = CommaFeed(host: host, name: UIDevice.current.name, model: models.stopLine)
   }
 }
 
+/// The stop-line model: the one downloaded last, and a check of Hugging Face for a newer one when the app starts and
+/// each time it comes to the front. Without a network and without a model yet, the drive is drawn with no stop lines.
 @MainActor
-enum Models {
-  /// Loaded once: compiling for the Neural Engine takes a moment.
-  static let stopLine = StopLineModel.bundled()
+@Observable
+final class Models {
+  static let shared = Models()
+  private(set) var stopLine: StopLineModel?
+  private(set) var version: Int?
+  private(set) var status = "loading"
+  private var checking = false
+  private var started = false
+
+  /// Loads the installed model (compiling for the Neural Engine takes a moment), then checks for a newer one.
+  func start() {
+    guard !started else { return }
+    started = true
+    Task {
+      let loaded = await Task.detached(priority: .userInitiated) { () -> (Int, StopLineModel)? in
+        guard let (v, url) = StopLineStore.shared.installed(), let m = try? StopLineModel(url: url) else { return nil }
+        return (v, m)
+      }.value
+      if let (v, m) = loaded { (stopLine, version) = (m, v) }
+      await refresh()
+    }
+  }
+
+  func refresh() async {
+    guard started, !checking else { return }
+    checking = true
+    defer { checking = false }
+    status = "checking for a newer model"
+    let log = Logger(subsystem: "diorama", category: "model")
+    do {
+      let installed = try await Task.detached(priority: .utility) { try await StopLineStore.shared.update() }.value
+      if let installed {
+        status = "loading version \(installed)"
+        let m = await Task.detached(priority: .userInitiated) { StopLineStore.shared.installed().flatMap { try? StopLineModel(url: $0.url) } }.value
+        if let m { (stopLine, version) = (m, installed) }
+        log.info("stop-line model version \(installed) installed")
+      }
+      status = "up to date"
+    } catch {
+      status = "could not check: \(error.localizedDescription)"
+      log.error("stop-line model check: \(error.localizedDescription, privacy: .public)")
+    }
+  }
 }
 
 struct SettingsView: View {
   @Binding var host: String
   @AppStorage(KeepAwake.key) private var keepScreenOn = true
   @State private var draft = ""
+  private let models = Models.shared
   @Environment(\.dismiss) private var dismiss
 
   var body: some View {
@@ -115,8 +167,13 @@ struct SettingsView: View {
         } footer: {
           Text("While a comma streams the drive and Diorama is in front. A locked iPhone stops the drive until it is unlocked.")
         }
-        Section("Stop-line model") {
-          LabeledContent("Model", value: Models.stopLine == nil ? "not in this build" : StopLineModel.name)
+        Section {
+          LabeledContent("Model", value: models.version.map { "\(StopLineModel.name) v\($0)" } ?? "not downloaded yet")
+          LabeledContent("Update", value: models.status)
+        } header: {
+          Text("Stop-line model")
+        } footer: {
+          Text("Downloaded from Hugging Face (ernestchu/diorama) and checked for a newer version each time Diorama comes to the front. A new version is used from the next connection to the comma.")
         }
         Section {
           NavigationLink("Set Up Camera…") { DioramaCameraSetup() }

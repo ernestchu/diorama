@@ -94,9 +94,9 @@
 
     private func run(seconds: Double) async {
       defer { running = false }
-      let loaded = await Task.detached(priority: .userInitiated) { StopLineModel.bundled() }.value
+      let loaded = await Task.detached(priority: .userInitiated) { StopLineModel.installed() }.value
       guard let model = loaded else {
-        failure = "There is no stop-line model in this build."
+        failure = "The stop-line model has not been downloaded yet."
         return
       }
       let frame = Self.sampleFrame()

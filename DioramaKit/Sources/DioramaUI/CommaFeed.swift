@@ -14,7 +14,7 @@
     public private(set) var streaming = false
     public let host: String
     private let name: String
-    private let model: StopLineModel?
+    public let model: StopLineModel?
     private var task: Task<Void, Never>?
 
     /// `host`: the comma's address, or the Mac standing in for it.
@@ -50,7 +50,7 @@
               waiting = [DioramaPackets.meta(meta)]
               waiting.append(
                 DioramaPackets.status(
-                  camera["height"] == nil ? "waiting for the comma's calibration" : model == nil ? "off: no stop-line model in this build" : "running"))
+                  camera["height"] == nil ? "waiting for the comma's calibration" : model == nil ? "off: the stop-line model is not downloaded yet" : "running"))
             case .notShowing:
               waiting.append(DioramaPackets.status("off: this comma's zoompilot does not stream for Diorama"))
             case .frame(let f):

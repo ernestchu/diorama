@@ -25,6 +25,7 @@ targets:
     configFiles:
       Debug: Config/Signing.xcconfig
       Release: Config/Signing.xcconfig
+    # the stop-line model is not bundled: the app downloads it from Hugging Face (StopLineStore)
     sources:
       - path: Diorama
         excludes: ["AppIcon.icon", "AppIcon.icon/**"]
@@ -32,9 +33,6 @@ targets:
       - path: Diorama/AppIcon.icon
         type: file
         buildPhase: resources
-      # the stop-line model, compiled by Xcode into StoplinePilot.mlmodelc; fetched, not committed (see README)
-      - path: ../models/StoplinePilot.mlpackage
-        optional: true
     dependencies:
       - package: DioramaKit
         products: [DioramaCore, DioramaLink, DioramaUI]
