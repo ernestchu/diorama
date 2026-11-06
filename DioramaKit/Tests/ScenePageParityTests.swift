@@ -4,7 +4,7 @@ import Testing
 
 @testable import DioramaCore
 
-/// DioramaScene against the page's own engine (web/page/diorama-engine.js, read from the repo, never copied), frame
+/// DioramaScene against the page's own engine (web/page/diorama-engine.js, read from the repo and run as it is), frame
 /// for frame over the same drive.diorama: the drawn plan, the pose, the lead, the stop line, the stripes, the view
 /// and the HUD, to 1e-6. The drive is synthetic (web/tools/synthetic_drive.py: cruising, a lead, a stop at a stop
 /// line, pulling away), with nothing from a real drive, and committed beside the test.
@@ -42,24 +42,6 @@ private func pageSnapshots(engine: String, drive: Data) throws -> [[String: Any]
   let js = try #require(JSContext())
   var failure: String?
   js.exceptionHandler = { _, e in failure = e?.toString() }
-  // a browser's and node's, which JavaScriptCore lacks: UTF-8 only, all the engine decodes (the meta's JSON)
-  js.evaluateScript(
-    """
-    globalThis.TextDecoder = class {
-      decode(view) {
-        const b = view instanceof Uint8Array ? view : new Uint8Array(view.buffer || view, view.byteOffset || 0, view.byteLength);
-        let s = '';
-        for (let i = 0; i < b.length; ) {
-          let c = b[i++];
-          if (c >= 0xf0) c = ((c & 7) << 18) | ((b[i++] & 63) << 12) | ((b[i++] & 63) << 6) | (b[i++] & 63);
-          else if (c >= 0xe0) c = ((c & 15) << 12) | ((b[i++] & 63) << 6) | (b[i++] & 63);
-          else if (c >= 0xc0) c = ((c & 31) << 6) | (b[i++] & 63);
-          s += String.fromCodePoint(c);
-        }
-        return s;
-      }
-    };
-    """)
   js.evaluateScript(engine)
   // the drive's bytes as an ArrayBuffer, without a copy through JSValue
   let bytes = UnsafeMutableRawPointer.allocate(byteCount: drive.count, alignment: 16)
