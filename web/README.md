@@ -31,3 +31,14 @@ the rlog.
     cd tools && npm install
     node render_clip.js http://127.0.0.1:8642/ frames/ 170 190
     ffmpeg -framerate 20 -i frames/%05d.jpg -c:v libx264 -pix_fmt yuv420p clip.mp4
+
+## Parity with the app
+
+The app's scene (`DioramaScene.swift`) and Metal drawing (`DioramaRenderer.swift`) follow this page. Two hooks
+let a test hold the app to it:
+
+- `DioramaEngine.snapshot(state)` is a frame's scene as JSON. `tools/scene.js drive.diorama` writes one per frame,
+  and the engine runs as it is in JavaScriptCore (no browser APIs).
+- `diorama.html?drive=drive.diorama&still=FRAME&view=road|bird` draws one frame alone, filling the window, with the
+  page's own cameras. It then sets `window.dioramaStill` to the snapshot and the title to `still ready`.
+  `tools/still.js` saves PNGs and snapshots headlessly.

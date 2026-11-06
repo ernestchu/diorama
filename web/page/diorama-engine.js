@@ -845,7 +845,8 @@
         if (cam && seen) this.stoplines.observe(k, seen, m, cam, this.cam.height, this.trail);
       }
       this.pendingLines = [];
-      const stripes = this.stripes.concat(this.stoplines.quads(k, pNow, this.trail));
+      const stopLine = this.stoplines.quads(k, pNow, this.trail)[0] || null;
+      const stripes = stopLine ? this.stripes.concat([stopLine]) : this.stripes;
 
       // this frame's lead, as this frame predicts it: the distance to its rear and its offset, facing along the
       // ego lane there (its lines reach 192 m; the plan, laid out in time, can end short of a slow car's lead and
@@ -876,7 +877,7 @@
 
       this.state = {
         frame: k, seconds: msg.seconds, out, px, py, pz, pv, zpath, lead,
-        pose: pNow, stripes, view: smoothstep(0, 1, this.view), viewWhy: target ? this.chooser.why : '',
+        pose: pNow, stripes, stopLine, view: smoothstep(0, 1, this.view), viewWhy: target ? this.chooser.why : '',
         hud: { v: this.speed, a: plan(out.plan, 0, 6), lead: lead ? lead.x : null },
       };
       return this.state;
@@ -885,11 +886,25 @@
 
   function keepLast(arr, v, n) { arr.push(v); if (arr.length > n) arr.shift(); }
 
+  // A frame's scene as plain JSON, for the parity tests: what the app's DioramaScene.State must match. The path is
+  // the drawn plan (px, py, pz along it, pv its speeds), pose the car in the world (x, y, yaw), stopLine the held
+  // stop line's world quad or null, stripes the crosswalks and stop line as world quads, view 0 road .. 1 bird's-eye.
+  function snapshot(s) {
+    if (!s) return null;
+    const a = (v) => Array.from(v || []);
+    return {
+      frame: s.frame, seconds: s.seconds, px: a(s.px), py: a(s.py), pz: a(s.pz), pv: a(s.pv), pose: a(s.pose),
+      lead: s.lead && { x: s.lead.x, y: s.lead.y, heading: s.lead.heading, braking: s.lead.braking, seg: s.lead.seg },
+      stopLine: s.stopLine, stripes: s.stripes, view: s.view, viewWhy: s.viewWhy,
+      hud: { v: s.hud.v, a: s.hud.a, lead: s.hud.lead },
+    };
+  }
+
   const api = {
     FPS, DT, MPH, IDX_N, X_IDXS, EGO_FRONT, EGO_REAR, SEG_LEAD_MAX,
     clamp, smoothstep, interp, percentile, m3mul, m3inv, m3vec, VIEW_FROM_DEVICE,
     decode, readFile, parseDrive, plan, lane, leadAt, FrameCamera, RoadMap, Engine, ViewChooser, VIEW,
-    readSeg, segSeesVehicle, segLeadAhead, morph, runs, components,
+    readSeg, segSeesVehicle, segLeadAhead, morph, runs, components, snapshot,
   };
   if (typeof module !== 'undefined' && module.exports) module.exports = api;
   root.DioramaEngine = api;

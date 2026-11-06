@@ -7,8 +7,11 @@
 
   Diorama: a live 3-D miniature of the drive, from what the driving model sees.
   One page, two sources (the Mac and iPhone apps draw the same scene natively, DioramaScene.swift):
-    live    served by jetlink-server at /diorama/, fed by /diorama/events
-    drive   ?drive=drive.diorama&footage=footage.mp4: a recorded drive (python -m diorama view) beside its footage
+    live    a server's /diorama/events (jetlink's; not used in this repo)
+    drive   ?drive=drive.diorama&footage=footage.mp4: a recorded drive (python -m dioramaweb view) beside its footage
+    still   ?drive=drive.diorama&still=FRAME[&view=road|bird][&theme=dark|light]: one frame of the drive, the scene alone
+            filling the window, for the parity tests: the messages up to FRAME pushed, drawn, then window.dioramaStill
+            holds DioramaEngine.snapshot of its state and the title is "still ready" (or "still failed: ...")
   diorama-camera.json beside the page, when there is one, sets each view's camera; ?camera=setup (python -m diorama
   camera) sets it with the pointer, one view at a time, over a still scene of its own, and posts it back to save.
 -->
@@ -92,6 +95,8 @@
   .camset .row button { flex: 1; }
   .camset .hint { margin: 0; font-size: 12px; color: #a9abb1; }
   .camset .hint.bad { color: var(--bad); }
+  body.still header, body.still footer, body.still .hud, body.still .waiting, body.still #footagePane { display: none !important; }
+  body.still main, body.still #scene { position: fixed !important; inset: 0 !important; width: 100vw !important; height: 100vh !important; margin: 0 !important; }
 </style>
 </head>
 <body>
@@ -389,6 +394,27 @@
     };
   }
 
+  // ---- one frame, for the parity tests (the still mode above): no transport, no HUD, no animation
+  async function still(url, target, view) {
+    document.body.classList.add('still');
+    try {
+      const msgs = [...E.readFile(await (await fetch(url)).arrayBuffer())];
+      for (const m of msgs) {
+        if (m.kind === 'D' && m.frame > target) break;
+        engine.push(m);
+      }
+      if (!engine.state || engine.state.frame !== target) throw new Error(`the drive has no frame ${target}`);
+      if (view === 'road' || view === 'bird') renderer.fixedView = view === 'road' ? 0 : 1;
+      await new Promise((r) => requestAnimationFrame(r));
+      renderer.draw(engine.state, engine);
+      renderer.gl.finish();
+      window.dioramaStill = E.snapshot(engine.state);
+      document.title = 'still ready';
+    } catch (e) {
+      document.title = `still failed: ${e.message}`;
+    }
+  }
+
   // ---- the camera: diorama-camera.json beside the page, where the viewer or the server has one, over the renderer's own
   async function loadCamera() {
     let res;
@@ -508,7 +534,7 @@
       $('main').innerHTML = `<div class="error">Diorama cannot draw here: ${e.message}</div>`;
       return;
     }
-    await loadCamera();
+    if (params.get('still') === null) await loadCamera();  // a still frame: the page's own cameras, as the app's
     if (setup) {
       // no drive and no footage: the camera is set over a scene of its own
       preview = DioramaRender.previewScene();
@@ -517,6 +543,9 @@
       $('src').textContent = 'Camera setup';
       wait('');
       cameraSetup();
+    } else if (params.get('drive') && params.get('still') !== null) {
+      await still(params.get('drive'), Number(params.get('still')), params.get('view'));
+      return;
     } else if (params.get('drive')) source = await driveSource(params.get('drive'), params.get('footage'));
     else source = liveSource();
     setInterval(stats, 500);
