@@ -348,6 +348,40 @@
   // was last seen unless it is within STOP_NEAR m ahead, below the camera's view over the hood (a car stopped at its
   // line no longer sees it).
   const STOP_SAME = 3, STOP_SIDE = 3, STOP_KEEP = 30, STOP_MAX = 50, STOP_WIDTH = 0.4, STOP_SEEN = 3, STOP_NEAR = 6;
+  // Each sighting is first fitted to the ego lane (egoLane, fitToLane): its ends moved, along the line, to where it
+  // crosses the lane's two boundaries, longer or shorter. Near the line the camera loses its ends over the hood and the
+  // model's line shortens; fitted, it keeps the lane's width. A boundary is the lane line, or the road edge where that
+  // lies inside it, as the labels were cut (train/egotrim.py). Whatever the lines' probabilities, as there too: at an
+  // intersection the paint ends and the model's confidence in the lines drops, but where it puts them still bounds the
+  // ego lane, and that is where the stop line is fitted.
+  // The ego lane's two boundaries this frame, left then right, as (x, y) road points near to far; null without them.
+  function egoLane(out) {
+    if (!out.lane_lines || !out.road_edges) return null;
+    return [0, 1].map((side) => X_IDXS.map((x, i) => {
+      const ly = lane(out.lane_lines, 1 + side, i, 0), ey = lane(out.road_edges, side, i, 0);
+      const inside = side ? ey < ly : ey > ly;  // left: the edge right of the line; right: left of it
+      return [x, inside ? ey : ly];
+    }));
+  }
+  // The line A-B (road points, in the frame the boundaries are in) fitted to the lane: [A', B'] on its own extension
+  // where it crosses the two boundaries, or null where it does not cross both.
+  function fitToLane(A, B, bounds) {
+    const dx = B[0] - A[0], dy = B[1] - A[1], dd = dx * dx + dy * dy;
+    if (dd < 1e-6) return null;
+    const ts = bounds.map((c) => {
+      const s = c.map(([x, y]) => (x - A[0]) * -dy + (y - A[1]) * dx);  // which side of the line each point is
+      for (let i = 0; i + 1 < c.length; i++) {
+        if (s[i] === 0 || s[i] * s[i + 1] < 0) {
+          const f = s[i] / (s[i] - s[i + 1]), px = c[i][0] + f * (c[i + 1][0] - c[i][0]), py = c[i][1] + f * (c[i + 1][1] - c[i][1]);
+          return ((px - A[0]) * dx + (py - A[1]) * dy) / dd;
+        }
+      }
+      return null;
+    });
+    if (ts[0] === null || ts[1] === null || ts[0] === ts[1]) return null;
+    const t0 = Math.min(ts[0], ts[1]), t1 = Math.max(ts[0], ts[1]);
+    return [[A[0] + t0 * dx, A[1] + t0 * dy], [A[0] + t1 * dx, A[1] + t1 * dy]];
+  }
   // a line's heading as a half turn: lines have no direction
   const halfTurn = (d) => d - Math.PI * Math.round(d / Math.PI);
   function stopMove(h, m, ang, len, w) {
@@ -357,7 +391,8 @@
   }
   class StopLines {
     constructor() { this.held = []; }
-    observe(k, pose, msg, cam, road, trail) {
+    // `now`, `bounds`: the car's pose this frame and the ego lane's boundaries in it (egoLane), or bounds null
+    observe(k, pose, msg, cam, road, trail, now = null, bounds = null) {
       const same = (h, x, y) => {
         const [hx, hy] = trail.worldToEgo(pose, h.m[0], h.m[1]);
         return Math.abs(hx - x) < STOP_SAME && Math.abs(hy - y) < STOP_SIDE;
@@ -365,9 +400,13 @@
       for (const l of msg.lines) {
         const A = cam.groundHit(l.x1, l.y1, road), B = cam.groundHit(l.x2, l.y2, road);
         if (!A || !B || (A[0] + B[0]) / 2 > STOP_MAX) continue;
-        const a = trail.egoToWorld(pose, A[0], A[1]), b = trail.egoToWorld(pose, B[0], B[1]);
+        let a = trail.egoToWorld(pose, A[0], A[1]), b = trail.egoToWorld(pose, B[0], B[1]);
+        if (bounds) {  // the boundaries are in this frame's road frame, the sighting in its own frame's
+          const fit = fitToLane(trail.worldToEgo(now, a[0], a[1]), trail.worldToEgo(now, b[0], b[1]), bounds);
+          if (fit) [a, b] = fit.map(([fx, fy]) => trail.egoToWorld(now, fx, fy));
+        }
         const m = [(a[0] + b[0]) / 2, (a[1] + b[1]) / 2], ang = Math.atan2(b[1] - a[1], b[0] - a[0]);
-        const len = Math.hypot(b[0] - a[0], b[1] - a[1]), x = (A[0] + B[0]) / 2, y = (A[1] + B[1]) / 2;
+        const len = Math.hypot(b[0] - a[0], b[1] - a[1]), [x, y] = trail.worldToEgo(pose, m[0], m[1]);
         const h = this.held.filter((h) => same(h, x, y)).sort((p, q) => q.hits - p.hits)[0];
         if (!h) { this.held.push({ m, ang, len, last: k, hits: 1 }); continue; }
         stopMove(h, m, ang, len, 0.3);
@@ -853,10 +892,11 @@
         this.stripes = this.roadmap.crosswalks(pNow, laneHeading);
         this.stripesFrame = k;
       }
-      // the stop-line model's lines, drawn with the stripes
+      // the stop-line model's lines, fitted to the ego lane, drawn with the stripes
+      const bounds = this.pendingLines.length ? egoLane(out) : null;
       for (const m of this.pendingLines) {
         const cam = m.wide ? this.wideCam : this.cam, seen = this.trail.pose(m.frame);
-        if (cam && seen) this.stoplines.observe(k, seen, m, cam, this.cam.height, this.trail);
+        if (cam && seen) this.stoplines.observe(k, seen, m, cam, this.cam.height, this.trail, pNow, bounds);
       }
       this.pendingLines = [];
       const stopLine = this.stoplines.quads(k, pNow, this.trail)[0] || null;
@@ -918,7 +958,7 @@
     FPS, DT, MPH, IDX_N, X_IDXS, EGO_FRONT, EGO_REAR, SEG_LEAD_MAX,
     clamp, smoothstep, interp, percentile, m3mul, m3inv, m3vec, VIEW_FROM_DEVICE,
     decode, readFile, parseDrive, plan, lane, leadAt, FrameCamera, RoadMap, Engine, ViewChooser, VIEW,
-    readSeg, segSeesVehicle, segLeadAhead, morph, runs, components, snapshot,
+    readSeg, segSeesVehicle, segLeadAhead, morph, runs, components, snapshot, egoLane, fitToLane,
   };
   if (typeof module !== 'undefined' && module.exports) module.exports = api;
   root.DioramaEngine = api;
