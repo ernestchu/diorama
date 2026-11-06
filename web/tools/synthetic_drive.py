@@ -15,7 +15,10 @@ The driving model's heads are what a perfect model would say of that (the plan
 is the script's own future), in the raw form a drive message carries: means
 and log stds, logits. The stop-line model's messages are the stop line's ends
 and the lead's box projected into the narrow frame (f 910, cy 47.6) from where
-they stand, every other frame, as the phone sends them.
+they stand, every other frame, as the phone sends them. The stop line is given
+as the real model gives it, not as it is: it runs on into the next lanes
+(OVERRUN), and near, the frame's edges cut it short. The page fits it back to
+the ego lane, which is what the parity tests must see the app do too.
 
     python tools/synthetic_drive.py ../DioramaKit/Tests/Fixtures/synthetic/drive.diorama
 """
@@ -39,6 +42,7 @@ HEIGHT = 1.37  # the camera above the road, m
 F, CX, CY = 910.0, 256.0, 47.6  # openpilot's medmodel frame, 512x256
 CURVE = 4e-4  # the road's y = CURVE * x^2 ahead of the car, m
 STOP_AT = 170.0  # the stop line's distance along the road from the start, m
+OVERRUN = (0.7, 1.3)  # how far the model's stop line runs past the ego lane's left and right lines, m
 FIELDS = (('plan', 990), ('lane_lines', 528), ('lane_lines_prob', 8), ('road_edges', 264), ('lead', 144), ('lead_prob', 3),
           ('pose', 12))
 
@@ -139,7 +143,9 @@ def seg_and_lines(k: int, x: np.ndarray) -> list[bytes]:
   if rel > 0:
     # the line across the ego lane, on the curving road there, where the narrow frame still sees it
     y0 = CURVE * rel ** 2
-    (u1, v1), (u2, v2) = pixel(rel, y0 - 1.8, HEIGHT), pixel(rel, y0 + 1.8, HEIGHT)
+    (u1, v1), (u2, v2) = pixel(rel, y0 - 1.8 - OVERRUN[0], HEIGHT), pixel(rel, y0 + 1.8 + OVERRUN[1], HEIGHT)
+    t0, t1 = max(0.0, (0 - u1) / (u2 - u1)), min(1.0, (511 - u1) / (u2 - u1))  # cut at the frame's sides
+    u1, v1, u2, v2 = u1 + t0 * (u2 - u1), v1 + t0 * (v2 - v1), u1 + t1 * (u2 - u1), v1 + t1 * (v2 - v1)
     if max(v1, v2) < 250 and rel < 45:
       lines.append([0.8, u1, v1, u2, v2])
   return [seg, stoplines(k, False, lines)]
