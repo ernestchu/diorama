@@ -18,7 +18,7 @@ import Testing
   #expect(page.count == app.count, "the page has \(page.count) frames, the app \(app.count)")
   #expect(page.count == 480)
 
-  var compared = 0, withStopLine = 0, withLead = 0, bird = 0, road = 0
+  var compared = 0, withStopLine = 0, withLead = 0, bird = 0, road = 0, cut = 0
   for (want, got) in zip(page, app) {
     let frame = want["frame"] as? Int ?? -1
     if let field = firstDifference(want, got) {
@@ -28,13 +28,15 @@ import Testing
     compared += 1
     if want["stopLine"] is [Any] { withStopLine += 1 }
     if want["lead"] is [String: Any] { withLead += 1 }
+    if want["planEnd"] is NSNumber { cut += 1 }
     if (want["view"] as? Double ?? 0) > 0.5 { bird += 1 } else { road += 1 }
   }
   // the drive exercises what the comparison is for
   #expect(withStopLine > 100, "only \(withStopLine) frames with a stop line")
   #expect(withLead > 50, "only \(withLead) frames with a lead")
   #expect(bird > 100 && road > 100, "\(road) frames in the road view, \(bird) in bird's-eye")
-  print("scene parity: \(compared) frames, \(withStopLine) with a stop line, \(withLead) with a lead, \(road) road view, \(bird) bird's-eye")
+  #expect(cut > 50, "only \(cut) frames with the plan cut where it stops braking")
+  print("scene parity: \(compared) frames, \(withStopLine) with a stop line, \(withLead) with a lead, \(road) road view, \(bird) bird's-eye, \(cut) with the plan cut")
 }
 
 /// The page's DioramaEngine.snapshot of every frame the drive steps it to.
@@ -87,6 +89,7 @@ private func appSnapshots(drive: Data) -> [[String: Any]] {
     ]
     snap["lead"] = s.lead.map { l in ["x": l.x, "y": l.y, "heading": l.heading, "braking": l.braking, "seg": l.seg] as [String: Any] }
     snap["stopLine"] = s.stopLine.map(quad)
+    snap["planEnd"] = s.planEnd
     out.append(snap)
   }
   return out

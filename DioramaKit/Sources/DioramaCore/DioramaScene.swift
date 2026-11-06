@@ -23,6 +23,26 @@ public enum Diorama {
   static let segFresh = 10
   /// A lead the segmentation alone shows (DioramaSeg.leadAhead): at most this far, metres
   public static let segLeadMax = 15.0
+  /// A plan's acceleration at or below this is braking, m/s^2 (planEnd).
+  public static let planBrake = -0.3
+
+  /// Where the plan, having braked, starts to speed up again: the comma's own path turns from red to green there (its
+  /// hue follows the plan's acceleration). The drawn path ends at it, as at a stop sign the car stops before it goes;
+  /// once the car has passed it the plan no longer starts by braking, and all of it is drawn. Braking is an
+  /// acceleration of planBrake or less, so a cruising plan's small ups and downs never cut it. px the plan's
+  /// distances, pa its accelerations; nil where it does not brake and then speed up. As diorama-engine.js's planEnd.
+  public static func planEnd(_ px: [Double], _ pa: [Double]) -> Double? {
+    var braked = false
+    for i in px.indices {
+      if pa[i] <= planBrake {
+        braked = true
+      } else if braked && pa[i] >= 0 {
+        let f = -pa[i - 1] / (pa[i] - pa[i - 1])  // where the acceleration crosses zero, between the two
+        return px[i - 1] + f * (px[i] - px[i - 1])
+      }
+    }
+    return nil
+  }
   static let segLeadHalf = 1.0, segLeadWidth = 0.5
 
   // MARK: small math
@@ -513,13 +533,15 @@ public final class DioramaScene {
     public let speed: Double, accel: Double, leadDistance: Double?
     /// The stop line ahead, held in the world: four corners, drawn as a stripe.
     public let stopLine: [SIMD2<Double>]?
+    /// How far along the plan it is drawn, at most: where it stops braking and speeds up again (Diorama.planEnd).
+    public let planEnd: Double?
 
     public init(
       frame: Int, seconds: Double, out: DioramaOutputs, px: [Double], py: [Double], pz: [Double], lead: Lead?, pose: SIMD3<Double>,
       stripes: [[SIMD2<Double>]], view: Double, viewWhy: String, speed: Double, accel: Double, leadDistance: Double?,
-      stopLine: [SIMD2<Double>]? = nil
+      stopLine: [SIMD2<Double>]? = nil, planEnd: Double? = nil
     ) {
-      self.stopLine = stopLine
+      (self.stopLine, self.planEnd) = (stopLine, planEnd)
       (self.frame, self.seconds, self.out, self.px, self.py, self.pz, self.lead) = (frame, seconds, out, px, py, pz, lead)
       (self.pose, self.stripes, self.view, self.viewWhy) = (pose, stripes, view, viewWhy)
       (self.speed, self.accel, self.leadDistance) = (speed, accel, leadDistance)
@@ -692,7 +714,8 @@ public final class DioramaScene {
     state = State(
       frame: k, seconds: seconds, out: out, px: px, py: py, pz: pz, lead: lead,
       pose: pose, stripes: stripes, view: Diorama.smoothstep(0, 1, view ?? 0), viewWhy: target == 1 ? chooser.why : "",
-      speed: speed, accel: out.plan(0, 6), leadDistance: lead?.x, stopLine: stopLine)
+      speed: speed, accel: out.plan(0, 6), leadDistance: lead?.x, stopLine: stopLine,
+      planEnd: Diorama.planEnd(px, (0..<n).map { out.plan($0, 6) }))
   }
 }
 

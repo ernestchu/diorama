@@ -725,8 +725,8 @@
         }
         Self.polygon(&tris, q, hgt, th.paint, 0.95)
       }
-      // the planned path, cut before the lead
-      let px = state.px, maxD = state.lead.map { max($0.x - pathShortOfLead, 0) } ?? 80
+      // the planned path, cut short of the lead, and where the plan stops braking and speeds up again (planEnd)
+      let px = state.px, maxD = min(state.lead.map { max($0.x - pathShortOfLead, 0) } ?? 80, state.planEnd ?? .infinity)
       var pts: [SIMD3<Double>] = []
       for i in 0..<Diorama.idxN {
         if px[i] >= maxD {

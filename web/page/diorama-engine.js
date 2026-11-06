@@ -813,6 +813,24 @@
     }
   }
 
+  // Where the plan, having braked, starts to speed up again: the comma's own path turns from red to green there (its
+  // hue follows the plan's acceleration). The drawn path ends at it, as at a stop sign the car stops before it goes;
+  // once the car has passed it the plan no longer starts by braking, and all of it is drawn. Braking is an acceleration
+  // of PLAN_BRAKE or less, so a cruising plan's small ups and downs never cut it. px the plan's distances, pa its
+  // accelerations; null where it does not brake and then speed up.
+  const PLAN_BRAKE = -0.3;  // m/s^2
+  function planEnd(px, pa) {
+    let braked = false;
+    for (let i = 0; i < px.length; i++) {
+      if (pa[i] <= PLAN_BRAKE) braked = true;
+      else if (braked && pa[i] >= 0) {
+        const f = -pa[i - 1] / (pa[i] - pa[i - 1]);  // where the acceleration crosses zero, between the two
+        return px[i - 1] + f * (px[i] - px[i - 1]);
+      }
+    }
+    return null;
+  }
+
   // ---------------------------------------------------------------- the scene, frame by frame
   class Engine {
     constructor(opts = {}) {
@@ -931,6 +949,7 @@
 
       this.state = {
         frame: k, seconds: msg.seconds, out, px, py, pz, pv, zpath, lead,
+        planEnd: planEnd(px, Array.from({ length: IDX_N }, (_, i) => plan(out.plan, i, 6))),
         pose: pNow, stripes, stopLine, view: smoothstep(0, 1, this.view), viewWhy: target ? this.chooser.why : '',
         hud: { v: this.speed, a: plan(out.plan, 0, 6), lead: lead ? lead.x : null },
       };
@@ -941,7 +960,7 @@
   function keepLast(arr, v, n) { arr.push(v); if (arr.length > n) arr.shift(); }
 
   // A frame's scene as plain JSON, for the parity tests: what the app's DioramaScene.State must match. The path is
-  // the drawn plan (px, py, pz along it, pv its speeds), pose the car in the world (x, y, yaw), stopLine the held
+  // the drawn plan (px, py, pz along it, pv its speeds; planEnd where it is cut, at the braking's end), pose the car in the world (x, y, yaw), stopLine the held
   // stop line's world quad or null, stripes the crosswalks and stop line as world quads, view 0 road .. 1 bird's-eye.
   function snapshot(s) {
     if (!s) return null;
@@ -949,7 +968,7 @@
     return {
       frame: s.frame, seconds: s.seconds, px: a(s.px), py: a(s.py), pz: a(s.pz), pv: a(s.pv), pose: a(s.pose),
       lead: s.lead && { x: s.lead.x, y: s.lead.y, heading: s.lead.heading, braking: s.lead.braking, seg: s.lead.seg },
-      stopLine: s.stopLine, stripes: s.stripes, view: s.view, viewWhy: s.viewWhy,
+      stopLine: s.stopLine, stripes: s.stripes, view: s.view, viewWhy: s.viewWhy, planEnd: s.planEnd ?? null,
       hud: { v: s.hud.v, a: s.hud.a, lead: s.hud.lead },
     };
   }
@@ -958,7 +977,7 @@
     FPS, DT, MPH, IDX_N, X_IDXS, EGO_FRONT, EGO_REAR, SEG_LEAD_MAX,
     clamp, smoothstep, interp, percentile, m3mul, m3inv, m3vec, VIEW_FROM_DEVICE,
     decode, readFile, parseDrive, plan, lane, leadAt, FrameCamera, RoadMap, Engine, ViewChooser, VIEW,
-    readSeg, segSeesVehicle, segLeadAhead, morph, runs, components, snapshot, egoLane, fitToLane,
+    readSeg, segSeesVehicle, segLeadAhead, morph, runs, components, snapshot, egoLane, fitToLane, planEnd, PLAN_BRAKE,
   };
   if (typeof module !== 'undefined' && module.exports) module.exports = api;
   root.DioramaEngine = api;

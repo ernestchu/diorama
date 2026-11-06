@@ -513,8 +513,8 @@ void main() {
           polygon(tris, q, hgt, th.paint, 0.9);
         }
       }
-      // the planned path, cut before the lead
-      const px = state.px, maxD = state.lead ? Math.max(state.lead.x - (state.pathGap ?? 3), 0) : 80;
+      // the planned path, cut short of the lead, and where the plan stops braking and speeds up again (planEnd)
+      const px = state.px, maxD = Math.min(state.lead ? Math.max(state.lead.x - (state.pathGap ?? 3), 0) : 80, state.planEnd ?? Infinity);
       const pts = [];
       for (let i = 0; i < IDX_N; i++) {
         if (px[i] >= maxD) {
