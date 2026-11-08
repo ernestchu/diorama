@@ -57,3 +57,50 @@ targets:
         NSLocalNetworkUsageDescription: Diorama connects to your comma over the USB cable.
         UIApplicationSupportsIndirectInputEvents: true
         ITSAppUsesNonExemptEncryption: false
+  # Diorama Bench: the stop-line trunks' latency on the iPhone, untethered (Bench/Bench.swift). Its models are
+  # bundled from models/bench11/Models (not committed; see Bench/README.md).
+  DioramaBench:
+    type: application
+    platform: iOS
+    configFiles:
+      Debug: Config/Signing.xcconfig
+      Release: Config/Signing.xcconfig
+    settings:
+      base:
+        PRODUCT_BUNDLE_IDENTIFIER: $(inherited).bench
+        ENABLE_USER_SCRIPT_SANDBOXING: NO
+    sources:
+      - path: Bench
+        excludes: ["README.md"]
+      - path: ../models/bench11/Models
+        type: folder
+        buildPhase: resources
+    dependencies:
+      - package: DioramaKit
+        products: [DioramaLink, DioramaUI]
+    postBuildScripts:
+      - name: Stamp the git commit
+        basedOnDependencyAnalysis: false
+        script: |
+          commit=$(git -C "$SRCROOT" rev-parse --short HEAD 2>/dev/null || echo unknown)
+          git -C "$SRCROOT" diff --quiet HEAD 2>/dev/null || commit="$commit-dirty"
+          /usr/libexec/PlistBuddy -c "Delete :DioramaGitCommit" "$TARGET_BUILD_DIR/$INFOPLIST_PATH" 2>/dev/null || true
+          /usr/libexec/PlistBuddy -c "Add :DioramaGitCommit string $commit" "$TARGET_BUILD_DIR/$INFOPLIST_PATH"
+    info:
+      path: Bench/Info.plist
+      properties:
+        CFBundleName: Diorama Bench
+        CFBundleDisplayName: Diorama Bench
+        CFBundleIdentifier: $(PRODUCT_BUNDLE_IDENTIFIER)
+        CFBundleShortVersionString: $(MARKETING_VERSION)
+        CFBundleVersion: $(CURRENT_PROJECT_VERSION)
+        LSRequiresIPhoneOS: true
+        UILaunchScreen: {}
+        UIApplicationSceneManifest:
+          UIApplicationSupportsMultipleScenes: false
+        UISupportedInterfaceOrientations: [UIInterfaceOrientationPortrait]
+        UIRequiredDeviceCapabilities: [arm64]
+        # the reports show in Files, under On My iPhone
+        UIFileSharingEnabled: true
+        LSSupportsOpeningDocumentsInPlace: true
+        ITSAppUsesNonExemptEncryption: false

@@ -7,20 +7,30 @@
 	objects = {
 
 /* Begin PBXBuildFile section */
+		02CC831A697C931A321C488D /* DioramaUI in Frameworks */ = {isa = PBXBuildFile; productRef = 6E0C7D05C77E43B69B41B38D /* DioramaUI */; };
 		3FB734B62F278E4F6E1D117A /* BenchmarkScreen.swift in Sources */ = {isa = PBXBuildFile; fileRef = 4503371A152EB1EC3DD987D7 /* BenchmarkScreen.swift */; };
+		417F46D3F92B65047A98A35C /* DioramaLink in Frameworks */ = {isa = PBXBuildFile; productRef = FD82F5908BBDC72D83132B87 /* DioramaLink */; };
+		763F99F6FFC889079DB5089B /* Models in Resources */ = {isa = PBXBuildFile; fileRef = 49C368481A9555FBCFE386F9 /* Models */; };
 		87D98365C11A47669EE852E0 /* DioramaUI in Frameworks */ = {isa = PBXBuildFile; productRef = AB1733AAAE833954D5F8338A /* DioramaUI */; };
 		8FE8FFADAEDC2061B51A1C81 /* DioramaCore in Frameworks */ = {isa = PBXBuildFile; productRef = 0D0B21583EFE8EF2F32A4E8F /* DioramaCore */; };
 		9ABA6CDE0014B9AC4CDF2ED8 /* DioramaLink in Frameworks */ = {isa = PBXBuildFile; productRef = 935F6D0D3D9D4890E153299C /* DioramaLink */; };
+		A21247BC6B35DE587866CBCB /* BenchApp.swift in Sources */ = {isa = PBXBuildFile; fileRef = 509FA4DA71B7C5913A4919C0 /* BenchApp.swift */; };
 		C1A9B7BDB7D189D7806ECE55 /* DioramaApp.swift in Sources */ = {isa = PBXBuildFile; fileRef = BB0DC74D0B6D50607976FC74 /* DioramaApp.swift */; };
 		D29CE8ED821DB6054B0E7B08 /* AppIcon.icon in Resources */ = {isa = PBXBuildFile; fileRef = 3873F748D939BDEAA5AC687D /* AppIcon.icon */; };
+		F75226602BC6F81CF28918C1 /* Bench.swift in Sources */ = {isa = PBXBuildFile; fileRef = B1BF9FAFB8F43D622FAA5B6B /* Bench.swift */; };
 /* End PBXBuildFile section */
 
 /* Begin PBXFileReference section */
 		3873F748D939BDEAA5AC687D /* AppIcon.icon */ = {isa = PBXFileReference; lastKnownFileType = wrapper.icon; path = AppIcon.icon; sourceTree = "<group>"; };
 		4503371A152EB1EC3DD987D7 /* BenchmarkScreen.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = BenchmarkScreen.swift; sourceTree = "<group>"; };
+		49C368481A9555FBCFE386F9 /* Models */ = {isa = PBXFileReference; lastKnownFileType = folder; name = Models; path = ../models/bench11/Models; sourceTree = SOURCE_ROOT; };
 		4B75AC794BB76253FFB69CC3 /* Signing.xcconfig */ = {isa = PBXFileReference; lastKnownFileType = text.xcconfig; path = Signing.xcconfig; sourceTree = "<group>"; };
+		509FA4DA71B7C5913A4919C0 /* BenchApp.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = BenchApp.swift; sourceTree = "<group>"; };
+		59D85F62732D162D27778689 /* Info.plist */ = {isa = PBXFileReference; lastKnownFileType = text.plist; path = Info.plist; sourceTree = "<group>"; };
 		6FE6E9BF8E7DDBD75479B214 /* Diorama.app */ = {isa = PBXFileReference; includeInIndex = 0; lastKnownFileType = wrapper.application; path = Diorama.app; sourceTree = BUILT_PRODUCTS_DIR; };
+		7052F559A49A0E9369BB39C7 /* DioramaBench.app */ = {isa = PBXFileReference; includeInIndex = 0; lastKnownFileType = wrapper.application; path = DioramaBench.app; sourceTree = BUILT_PRODUCTS_DIR; };
 		87921E1D899ADBA159E8AB48 /* DioramaKit */ = {isa = PBXFileReference; lastKnownFileType = folder; name = DioramaKit; path = ../DioramaKit; sourceTree = SOURCE_ROOT; };
+		B1BF9FAFB8F43D622FAA5B6B /* Bench.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Bench.swift; sourceTree = "<group>"; };
 		BB0DC74D0B6D50607976FC74 /* DioramaApp.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = DioramaApp.swift; sourceTree = "<group>"; };
 /* End PBXFileReference section */
 
@@ -35,6 +45,15 @@
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};
+		65E2C330AE6B5C6B2CE521C5 /* Frameworks */ = {
+			isa = PBXFrameworksBuildPhase;
+			buildActionMask = 2147483647;
+			files = (
+				417F46D3F92B65047A98A35C /* DioramaLink in Frameworks */,
+				02CC831A697C931A321C488D /* DioramaUI in Frameworks */,
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+		};
 /* End PBXFrameworksBuildPhase section */
 
 /* Begin PBXGroup section */
@@ -42,8 +61,28 @@
 			isa = PBXGroup;
 			children = (
 				6FE6E9BF8E7DDBD75479B214 /* Diorama.app */,
+				7052F559A49A0E9369BB39C7 /* DioramaBench.app */,
 			);
 			name = Products;
+			sourceTree = "<group>";
+		};
+		077151099E785F16EACCC401 /* diorama */ = {
+			isa = PBXGroup;
+			children = (
+				EF4B3CBD9E67DEEC48147C03 /* models */,
+			);
+			name = diorama;
+			path = ..;
+			sourceTree = "<group>";
+		};
+		07E7C94E28E35E67E9A6D315 /* Bench */ = {
+			isa = PBXGroup;
+			children = (
+				B1BF9FAFB8F43D622FAA5B6B /* Bench.swift */,
+				509FA4DA71B7C5913A4919C0 /* BenchApp.swift */,
+				59D85F62732D162D27778689 /* Info.plist */,
+			);
+			path = Bench;
 			sourceTree = "<group>";
 		};
 		207141562F5965777BBE916C /* Config */ = {
@@ -72,11 +111,29 @@
 			path = Diorama;
 			sourceTree = "<group>";
 		};
+		6D649063343CDB2AE78ED368 /* bench11 */ = {
+			isa = PBXGroup;
+			children = (
+				49C368481A9555FBCFE386F9 /* Models */,
+			);
+			path = bench11;
+			sourceTree = "<group>";
+		};
+		EF4B3CBD9E67DEEC48147C03 /* models */ = {
+			isa = PBXGroup;
+			children = (
+				6D649063343CDB2AE78ED368 /* bench11 */,
+			);
+			path = models;
+			sourceTree = "<group>";
+		};
 		F01D4DFF26A3FFBDD8F5F7D6 = {
 			isa = PBXGroup;
 			children = (
+				07E7C94E28E35E67E9A6D315 /* Bench */,
 				207141562F5965777BBE916C /* Config */,
 				5B2C0C77FBB4A2A0035060EC /* Diorama */,
+				077151099E785F16EACCC401 /* diorama */,
 				47E9F1B6DC739DD96FBA0A08 /* Packages */,
 				05D0E170029309C8B6391319 /* Products */,
 			);
@@ -85,6 +142,28 @@
 /* End PBXGroup section */
 
 /* Begin PBXNativeTarget section */
+		3D812221C96E2668C9B52DD0 /* DioramaBench */ = {
+			isa = PBXNativeTarget;
+			buildConfigurationList = E03DB4703F5499F39C9ED10A /* Build configuration list for PBXNativeTarget "DioramaBench" */;
+			buildPhases = (
+				85F8D2AEA126410425D50E41 /* Sources */,
+				376037210C60CF05DD1BE1FA /* Resources */,
+				65E2C330AE6B5C6B2CE521C5 /* Frameworks */,
+				64680711FB51512F6F46A989 /* Stamp the git commit */,
+			);
+			buildRules = (
+			);
+			dependencies = (
+			);
+			name = DioramaBench;
+			packageProductDependencies = (
+				FD82F5908BBDC72D83132B87 /* DioramaLink */,
+				6E0C7D05C77E43B69B41B38D /* DioramaUI */,
+			);
+			productName = DioramaBench;
+			productReference = 7052F559A49A0E9369BB39C7 /* DioramaBench.app */;
+			productType = "com.apple.product-type.application";
+		};
 		FD409BA823D8A8FC66B21CC7 /* Diorama */ = {
 			isa = PBXNativeTarget;
 			buildConfigurationList = 5E75AC80A40792B684498968 /* Build configuration list for PBXNativeTarget "Diorama" */;
@@ -116,6 +195,10 @@
 				BuildIndependentTargetsInParallel = YES;
 				LastUpgradeCheck = 1430;
 				TargetAttributes = {
+					3D812221C96E2668C9B52DD0 = {
+						DevelopmentTeam = "";
+						ProvisioningStyle = Automatic;
+					};
 					FD409BA823D8A8FC66B21CC7 = {
 						DevelopmentTeam = "";
 						ProvisioningStyle = Automatic;
@@ -140,11 +223,20 @@
 			projectRoot = "";
 			targets = (
 				FD409BA823D8A8FC66B21CC7 /* Diorama */,
+				3D812221C96E2668C9B52DD0 /* DioramaBench */,
 			);
 		};
 /* End PBXProject section */
 
 /* Begin PBXResourcesBuildPhase section */
+		376037210C60CF05DD1BE1FA /* Resources */ = {
+			isa = PBXResourcesBuildPhase;
+			buildActionMask = 2147483647;
+			files = (
+				763F99F6FFC889079DB5089B /* Models in Resources */,
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+		};
 		6E87AB3A215372FBDB518CF8 /* Resources */ = {
 			isa = PBXResourcesBuildPhase;
 			buildActionMask = 2147483647;
@@ -154,6 +246,28 @@
 			runOnlyForDeploymentPostprocessing = 0;
 		};
 /* End PBXResourcesBuildPhase section */
+
+/* Begin PBXShellScriptBuildPhase section */
+		64680711FB51512F6F46A989 /* Stamp the git commit */ = {
+			isa = PBXShellScriptBuildPhase;
+			alwaysOutOfDate = 1;
+			buildActionMask = 2147483647;
+			files = (
+			);
+			inputFileListPaths = (
+			);
+			inputPaths = (
+			);
+			name = "Stamp the git commit";
+			outputFileListPaths = (
+			);
+			outputPaths = (
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+			shellPath = /bin/sh;
+			shellScript = "commit=$(git -C \"$SRCROOT\" rev-parse --short HEAD 2>/dev/null || echo unknown)\ngit -C \"$SRCROOT\" diff --quiet HEAD 2>/dev/null || commit=\"$commit-dirty\"\n/usr/libexec/PlistBuddy -c \"Delete :DioramaGitCommit\" \"$TARGET_BUILD_DIR/$INFOPLIST_PATH\" 2>/dev/null || true\n/usr/libexec/PlistBuddy -c \"Add :DioramaGitCommit string $commit\" \"$TARGET_BUILD_DIR/$INFOPLIST_PATH\"\n";
+		};
+/* End PBXShellScriptBuildPhase section */
 
 /* Begin PBXSourcesBuildPhase section */
 		54FBCEF6970BD3EB96513F1E /* Sources */ = {
@@ -165,9 +279,36 @@
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};
+		85F8D2AEA126410425D50E41 /* Sources */ = {
+			isa = PBXSourcesBuildPhase;
+			buildActionMask = 2147483647;
+			files = (
+				F75226602BC6F81CF28918C1 /* Bench.swift in Sources */,
+				A21247BC6B35DE587866CBCB /* BenchApp.swift in Sources */,
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+		};
 /* End PBXSourcesBuildPhase section */
 
 /* Begin XCBuildConfiguration section */
+		2C0ACAEC0DA060C5A9908AC0 /* Release */ = {
+			isa = XCBuildConfiguration;
+			baseConfigurationReference = 4B75AC794BB76253FFB69CC3 /* Signing.xcconfig */;
+			buildSettings = {
+				ASSETCATALOG_COMPILER_APPICON_NAME = AppIcon;
+				CODE_SIGN_IDENTITY = "iPhone Developer";
+				ENABLE_USER_SCRIPT_SANDBOXING = NO;
+				INFOPLIST_FILE = Bench/Info.plist;
+				LD_RUNPATH_SEARCH_PATHS = (
+					"$(inherited)",
+					"@executable_path/Frameworks",
+				);
+				PRODUCT_BUNDLE_IDENTIFIER = "$(inherited).bench";
+				SDKROOT = iphoneos;
+				TARGETED_DEVICE_FAMILY = "1,2";
+			};
+			name = Release;
+		};
 		50189625E43A57F0FFB81A3C /* Debug */ = {
 			isa = XCBuildConfiguration;
 			buildSettings = {
@@ -233,6 +374,24 @@
 				SWIFT_OPTIMIZATION_LEVEL = "-Onone";
 				SWIFT_STRICT_CONCURRENCY = complete;
 				SWIFT_VERSION = 6.0;
+				TARGETED_DEVICE_FAMILY = "1,2";
+			};
+			name = Debug;
+		};
+		B388B10584B5285D00BD4BE7 /* Debug */ = {
+			isa = XCBuildConfiguration;
+			baseConfigurationReference = 4B75AC794BB76253FFB69CC3 /* Signing.xcconfig */;
+			buildSettings = {
+				ASSETCATALOG_COMPILER_APPICON_NAME = AppIcon;
+				CODE_SIGN_IDENTITY = "iPhone Developer";
+				ENABLE_USER_SCRIPT_SANDBOXING = NO;
+				INFOPLIST_FILE = Bench/Info.plist;
+				LD_RUNPATH_SEARCH_PATHS = (
+					"$(inherited)",
+					"@executable_path/Frameworks",
+				);
+				PRODUCT_BUNDLE_IDENTIFIER = "$(inherited).bench";
+				SDKROOT = iphoneos;
 				TARGETED_DEVICE_FAMILY = "1,2";
 			};
 			name = Debug;
@@ -352,6 +511,15 @@
 			defaultConfigurationIsVisible = 0;
 			defaultConfigurationName = Debug;
 		};
+		E03DB4703F5499F39C9ED10A /* Build configuration list for PBXNativeTarget "DioramaBench" */ = {
+			isa = XCConfigurationList;
+			buildConfigurations = (
+				B388B10584B5285D00BD4BE7 /* Debug */,
+				2C0ACAEC0DA060C5A9908AC0 /* Release */,
+			);
+			defaultConfigurationIsVisible = 0;
+			defaultConfigurationName = Debug;
+		};
 /* End XCConfigurationList section */
 
 /* Begin XCLocalSwiftPackageReference section */
@@ -366,6 +534,10 @@
 			isa = XCSwiftPackageProductDependency;
 			productName = DioramaCore;
 		};
+		6E0C7D05C77E43B69B41B38D /* DioramaUI */ = {
+			isa = XCSwiftPackageProductDependency;
+			productName = DioramaUI;
+		};
 		935F6D0D3D9D4890E153299C /* DioramaLink */ = {
 			isa = XCSwiftPackageProductDependency;
 			productName = DioramaLink;
@@ -373,6 +545,10 @@
 		AB1733AAAE833954D5F8338A /* DioramaUI */ = {
 			isa = XCSwiftPackageProductDependency;
 			productName = DioramaUI;
+		};
+		FD82F5908BBDC72D83132B87 /* DioramaLink */ = {
+			isa = XCSwiftPackageProductDependency;
+			productName = DioramaLink;
 		};
 /* End XCSwiftPackageProductDependency section */
 	};
