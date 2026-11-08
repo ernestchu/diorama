@@ -23,7 +23,7 @@
     }
 
     public enum Failure: LocalizedError {
-      case noArchive, wrongSize(Int, Int), wrongHash, noPackage, badZip(String)
+      case noArchive, wrongSize(Int, Int), wrongHash, noPackage, badZip(String), noSpace(Int)
       public var errorDescription: String? {
         switch self {
         case .noArchive: "the manifest names no \(StopLineStore.archive)"
@@ -31,6 +31,7 @@
         case .wrongHash: "the download's SHA-256 is not the manifest's"
         case .noPackage: "the archive holds no .mlpackage"
         case .badZip(let why): "the archive is broken: \(why)"
+        case .noSpace(let mb): "the update needs about \(mb) MB free"
         }
       }
     }
@@ -76,6 +77,14 @@
       if let current, manifest.version <= current.version { return nil }
       guard let file = manifest.files[Self.archive] else { throw Failure.noArchive }
 
+      // the archive, then the package unzipped from it, then the compiled model: about three times its size at most
+      let needed = Int64(file.bytes) * 3
+      if let free = try? directory.resourceValues(forKeys: [.volumeAvailableCapacityForImportantUsageKey])
+        .volumeAvailableCapacityForImportantUsage, free < needed
+      {
+        throw Failure.noSpace(Int(needed >> 20))
+      }
+
       let work = directory.appending(path: ".incoming-\(UUID().uuidString)")
       try fm.createDirectory(at: work, withIntermediateDirectories: true)
       defer { try? fm.removeItem(at: work) }
@@ -87,11 +96,13 @@
 
       let unzipped = work.appending(path: "unzipped")
       try Zip.extract(zip, to: unzipped)
+      try? fm.removeItem(at: zip)
       guard let package = fm.enumerator(at: unzipped, includingPropertiesForKeys: nil)?
         .compactMap({ $0 as? URL }).first(where: { $0.pathExtension == "mlpackage" })
       else { throw Failure.noPackage }
       let compiled = try await MLModel.compileModel(at: package)
       defer { try? fm.removeItem(at: compiled) }
+      try? fm.removeItem(at: unzipped)
       _ = try MLModel(contentsOf: compiled)  // it loads here, or it is not installed
 
       let target = directory.appending(path: "v\(manifest.version)")
