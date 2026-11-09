@@ -18,7 +18,7 @@
     }
 
     /// Steps the scene through a batch, and what the view shows of it.
-    func take(_ batch: [Data], showInput: Bool) -> DioramaPlayer.Update {
+    func take(_ batch: [Data], showInput: Bool, showDiorama: Bool) -> DioramaPlayer.Update {
       lock.lock()
       defer { lock.unlock() }
       var update = DioramaPlayer.Update()
@@ -31,8 +31,10 @@
         case .meta(let meta): update.route = meta.route
         default: break
         }
-        if showInput, let meta = scene.meta, let picture = input.take(msg, meta) { update.input = picture }
+        if showInput { input.note(msg) }
       }
+      // once for the batch, which can hold a frame's segmentation and its stop line
+      if showInput, let meta = scene.meta { update.input = input.latest(meta, diorama: showDiorama) }
       if let s = scene.state {
         update.hud = DioramaPlayer.HUD(
           speed: Int((s.speed * Diorama.mph).rounded()), lead: s.leadDistance.map { Int($0.rounded()) }, view: s.view, accel: s.accel,
@@ -75,12 +77,14 @@
     @ObservationIgnored let box = SceneBox()
     @ObservationIgnored var redraw: (() -> Void)?
     @ObservationIgnored var showInput = false
+    /// The stop-line model's prediction on the footage, beside the comma's.
+    @ObservationIgnored var showDiorama = true
 
     public init() {}
 
     func take(_ batch: [Data]) async {
-      let box = box, showInput = showInput
-      let update = await Task.detached(priority: .userInitiated) { box.take(batch, showInput: showInput) }.value
+      let box = box, showInput = showInput, showDiorama = showDiorama
+      let update = await Task.detached(priority: .userInitiated) { box.take(batch, showInput: showInput, showDiorama: showDiorama) }.value
       let now = Date()
       frameTimes.removeAll { now.timeIntervalSince($0) > 2 }
       frameTimes += Array(repeating: now, count: update.frames)
@@ -98,8 +102,8 @@
     public func waiting(at now: Date) -> Bool { frameTimes.last.map { now.timeIntervalSince($0) >= 2 } ?? true }
   }
 
-  /// The frame the models see, the packed narrow frame unpacked to 512x256 RGB, with what the segmentation made of
-  /// it tinted over it and each thing named.
+  /// The frame the models see, the packed narrow frame unpacked to 512x256 RGB, with the comma's prediction to draw
+  /// over it, and what the stop-line model made of it tinted into it and each thing named.
   public struct InputPicture: @unchecked Sendable {
     public struct Label: Sendable {
       public let text: String, x: Double, y: Double, rgb: SIMD3<UInt8>
@@ -107,35 +111,57 @@
     public let image: CGImage
     public let labels: [Label]
     public let caption: String
+    /// The comma's prediction, as its display draws it, in the picture's pixels.
+    public let comma: [CommaUI.Polygon]
+    public let height: Double
   }
 
-  /// The last few input frames, for the segmentation that comes after its frame.
+  /// The last few input frames and the comma's outputs for them, for the stop-line model's results that come after
+  /// their frame.
   struct ModelInput {
     static let segTint: [UInt8: SIMD3<UInt8>] = [1: [128, 64, 255], 2: [255, 214, 10], 3: [255, 255, 255], 4: [255, 140, 0], 5: [255, 92, 170]]
     static let thingTint: [String: SIMD3<UInt8>] = [
       "car": [56, 132, 255], "truck": [0, 200, 220], "bus": [0, 200, 220], "person": [255, 64, 64], "bicycle": [70, 210, 110], "motorcycle": [70, 210, 110],
     ]
     var images: [(frame: Int, w: Int, h: Int, rgba: [UInt8])] = []
+    var drives: [(frame: Int, values: [Float])] = []
     var lastSeg: DioramaSegMessage?
+    var lastLines: (frame: Int, lines: [DioramaStopLine])?
     var shown = -1
+    /// The comma's lead bars, smoothed over every frame up to the picture's.
+    var leadBars = CommaUI.LeadBars()
+    var leadBarFrame = -1
 
-    mutating func take(_ msg: DioramaMessage, _ meta: DioramaMeta) -> InputPicture? {
+    mutating func note(_ msg: DioramaMessage) {
       switch msg {
+      case .drive(let frame, _, _, let values):
+        drives.append((frame, values))
+        if drives.count > 8 { drives.removeFirst() }
       case .input(let frame, let w, let h, let packed):
-        guard packed.count >= 6 * w * h else { return nil }
+        guard packed.count >= 6 * w * h else { return }
         images.append((frame, 2 * w, 2 * h, Self.unpack(w, h, packed)))
         if images.count > 6 { images.removeFirst() }
       case .seg(let seg):
         lastSeg = seg
+      case .stopLines(let frame, let lines):
+        lastLines = (frame, lines)
       case .meta:
         images = []
+        drives = []
         lastSeg = nil
+        lastLines = nil
         shown = -1
-        return nil
+        leadBars = CommaUI.LeadBars()
+        leadBarFrame = -1
       default:
-        return nil
+        break
       }
+    }
+
+    /// The picture to show now, if there is a new one. `diorama`: with the stop-line model's prediction.
+    mutating func latest(_ meta: DioramaMeta, diorama: Bool) -> InputPicture? {
       guard let newest = images.last else { return nil }
+      guard diorama else { return newest.frame != shown ? picture(newest, nil, meta) : nil }
       // the frame the newest segmentation is of, which comes a little after the frame itself; the newest frame
       // bare while the models are not segmenting (preparing, paused, off)
       if let seg = lastSeg, let image = images.first(where: { $0.frame == seg.frame }) {
@@ -169,6 +195,13 @@
       guard let context = Self.context(width, height), let base = Self.image(image.rgba, width, height) else { return nil }
       context.draw(base, in: CGRect(x: 0, y: 0, width: width, height: height))
       var notes = ["frame \(image.frame)"], labels: [InputPicture.Label] = []
+      // the frames since the last picture, in order, each for as long as the comma's display showed it
+      for drive in drives where drive.frame > leadBarFrame && drive.frame <= image.frame {
+        let frames = leadBarFrame < 0 ? 1 : min(drive.frame - leadBarFrame, 20)
+        leadBars.advance(DioramaOutputs(values: drive.values, fields: meta.drive), meta, renders: frames * CommaUI.LeadBars.rendersPerFrame)
+        leadBarFrame = drive.frame
+      }
+      let comma = drives.first { $0.frame == image.frame }.map { CommaUI.polygons(DioramaOutputs(values: $0.values, fields: meta.drive), meta, leadBars: leadBars) } ?? []
       if let seg, let segInfo = meta.seg {
         let info = DioramaSeg(seg, segInfo), w = info.w, h = info.h, qmap = info.qmap
         var tint = [UInt8](repeating: 0, count: w * h * 4)
@@ -211,10 +244,23 @@
               text: "\(thing) \(String(format: "%.2f", score))", x: Double(i % w) * sx, y: Double(i / w) * sy,
               rgb: Self.thingTint[thing] ?? Self.thingTint["car"]!))
         }
+        // the stop line, in the same frame's pixels
+        if let lines = lastLines, lines.frame == seg.frame {
+          context.setStrokeColor(CGColor(srgbRed: 1, green: 214.0 / 255, blue: 10.0 / 255, alpha: 1))
+          context.setLineWidth(2.5)
+          context.setLineCap(.round)
+          for line in lines.lines {
+            context.move(to: CGPoint(x: line.x1, y: Double(height) - line.y1))
+            context.addLine(to: CGPoint(x: line.x2, y: Double(height) - line.y2))
+            context.strokePath()
+            labels.append(.init(text: "stop \(String(format: "%.2f", line.score))", x: min(line.x1, line.x2), y: min(line.y1, line.y2), rgb: [255, 214, 10]))
+          }
+        }
         notes.append("seg \(Int(seg.ms.rounded())) ms")
       }
       guard let composed = context.makeImage() else { return nil }
-      return InputPicture(image: composed, labels: labels, caption: "model input · \(width)×\(height) · \(notes.joined(separator: " · "))")
+      return InputPicture(
+        image: composed, labels: labels, caption: "footage · \(width)×\(height) · \(notes.joined(separator: " · "))", comma: comma, height: Double(height))
     }
 
     static func context(_ w: Int, _ h: Int) -> CGContext? {

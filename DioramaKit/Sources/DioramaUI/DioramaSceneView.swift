@@ -4,50 +4,59 @@
   import SwiftUI
 
   /// The drive as a live 3-D miniature, drawn natively in Metal from a feed's
-  /// messages: the scene, the HUD over it, and the models' timings below. The
-  /// same on a Mac and an iPhone, and the same drawing as the page's.
+  /// messages, edge to edge, with the HUD over it. The same on a Mac and an
+  /// iPhone, and the same drawing as the page's. The player is the caller's, so
+  /// that DioramaStats can show its timings elsewhere.
   public struct DioramaSceneView: View {
+    /// Where the footage switch is kept: set it and every scene view follows.
+    public static let inputKey = "diorama.input"
+    /// Where the switch for the stop-line model's prediction on the footage is kept.
+    public static let dioramaKey = "dioramaPrediction"
+
     let feed: any DioramaFeed
-    /// The Model input toggle: off for a feed that never carries the frames.
+    let player: DioramaPlayer
+    /// Whether the frames are shown at all: off for a feed that never carries them.
     let modelInput: Bool
-    @State private var player = DioramaPlayer()
-    @AppStorage("diorama.input") private var showInput = false
+    /// How far below the safe area's top the footage sits, to clear what the caller puts over the scene.
+    let footageTop: CGFloat
+    @AppStorage(DioramaSceneView.inputKey) private var showInput = false
+    @AppStorage(DioramaSceneView.dioramaKey) private var showDiorama = true
     @AppStorage(DioramaCamera.storageKey) private var camera = DioramaCamera.defaults
     @Environment(\.colorScheme) private var colorScheme
 
-    public init(feed: any DioramaFeed, modelInput: Bool = true) {
+    public init(feed: any DioramaFeed, player: DioramaPlayer, modelInput: Bool = true, footageTop: CGFloat = 0) {
       self.feed = feed
+      self.player = player
       self.modelInput = modelInput
+      self.footageTop = footageTop
     }
 
     public var body: some View {
-      VStack(spacing: 0) {
-        ZStack(alignment: .topLeading) {
-          DioramaMetalView(player: player, dark: colorScheme == .dark, camera: camera)
-          if let hud = player.hud { DioramaHUD(hud: hud).padding(14) }
-          if modelInput && showInput, let picture = player.input {
-            DioramaInputView(picture: picture)
-              .frame(maxWidth: 512)
-              .containerRelativeFrame(.horizontal) { width, _ in min(width * 0.46, 512) }
-              .padding(14)
-              .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .bottomTrailing)
-              .allowsHitTesting(false)
-          }
-          TimelineView(.periodic(from: .now, by: 0.5)) { context in
-            if player.waiting(at: context.date) {
-              Text("Waiting for the comma…")
-                .font(.system(size: 15))
-                .foregroundStyle(Color(white: 0.73))
-                .multilineTextAlignment(.center)
-                .padding(24)
-                .frame(maxWidth: .infinity, maxHeight: .infinity)
-                .background(Color(red: 0.06, green: 0.063, blue: 0.07).opacity(0.6))
-            }
-          }
-          .allowsHitTesting(false)
+      ZStack(alignment: .topLeading) {
+        DioramaMetalView(player: player, dark: colorScheme == .dark, camera: camera)
+          .ignoresSafeArea()
+        if let hud = player.hud { DioramaHUD(hud: hud).padding(14) }
+        if modelInput && showInput, let picture = player.input {
+          DioramaInputView(picture: picture)
+            .frame(maxWidth: 512)
+            .containerRelativeFrame(.horizontal) { width, _ in min(width * 0.41, 512) }
+            .padding(.horizontal, 14)
+            .padding(.top, footageTop)
+            .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topTrailing)
+            .allowsHitTesting(false)
         }
-        .clipped()
-        DioramaStats(player: player, modelInput: modelInput, showInput: $showInput)
+        TimelineView(.periodic(from: .now, by: 0.5)) { context in
+          if player.waiting(at: context.date) {
+            Text("Waiting for the comma…")
+              .font(.system(size: 15))
+              .foregroundStyle(Color(white: 0.73))
+              .multilineTextAlignment(.center)
+              .padding(24)
+              .frame(maxWidth: .infinity, maxHeight: .infinity)
+              .background(Color(red: 0.06, green: 0.063, blue: 0.07).opacity(0.6).ignoresSafeArea())
+          }
+        }
+        .allowsHitTesting(false)
       }
       .onAppear { start() }
       .onDisappear { feed.stop() }
@@ -59,11 +68,13 @@
         if !showInput { player.clearInput() }
         start()
       }
+      .onChange(of: showDiorama) { player.showDiorama = showDiorama }
     }
 
     private func start() {
       let input = modelInput && showInput
       player.showInput = input
+      player.showDiorama = showDiorama
       feed.start(input: input) { [player] batch in await player.take(batch) }
     }
   }
@@ -107,57 +118,34 @@
     }
   }
 
-  /// The models' timings, their state when not simply running, and the Model input toggle.
-  struct DioramaStats: View {
+  /// The models' timings, and whether the comma is connected with the full message a tap away, as rows of a Form or
+  /// a List in a navigation stack. The connection row is always there, on one line: a message that comes and goes
+  /// as the link is dialed would move every row below it.
+  public struct DioramaStats: View {
     let player: DioramaPlayer
-    let modelInput: Bool
-    @Binding var showInput: Bool
+    let feed: CommaFeed?
 
-    var body: some View {
-      TimelineView(.periodic(from: .now, by: 0.5)) { context in
-        let t = player.timing, model = median(t.model), seg = median(t.seg)
-        ViewThatFits(in: .horizontal) {
-          HStack(spacing: 18) { items(context.date, model, seg, t) }
-          LazyVGrid(columns: [GridItem(.adaptive(minimum: 92), alignment: .leading)], alignment: .leading, spacing: 8) {
-            items(context.date, model, seg, t)
-          }
-        }
-      }
-      .padding(.horizontal, 16)
-      .padding(.vertical, 10)
-      .frame(maxWidth: .infinity, alignment: .leading)
-      .background(.bar)
+    public init(player: DioramaPlayer, feed: CommaFeed?) {
+      self.player = player
+      self.feed = feed
     }
 
-    @ViewBuilder
-    private func items(_ now: Date, _ model: Double?, _ seg: Double?, _ t: DioramaScene.Timing) -> some View {
+    public var body: some View {
       // the driving model runs on the comma, which does not say how long it took
-      stat("\(Int(player.frameRate(at: now).rounded())) Hz", "Frames")
-      stat(ms(seg), "Stop-line model")
-      stat(segRate(t), "Stop-line rate")
-      if let models = player.models {
-        stat(models.prefix(1).uppercased() + models.dropFirst(), "Models", over: models.hasPrefix("off"))
-          .lineLimit(1)
-          .help(models)
-      }
-      if modelInput {
-        Toggle("Model input", isOn: $showInput)
-          .font(.system(size: 12))
-          .foregroundStyle(.secondary)
-          #if os(macOS)
-            .toggleStyle(.checkbox)
-          #endif
-          .help("The frame the models see: the narrow camera, warped to 512×256")
-          .fixedSize()
+      row("Frames") { "\(Int(player.frameRate(at: $0).rounded())) Hz" }
+      row("Stop-line model") { _ in ms(median(player.timing.seg)) }
+      row("Stop-line rate") { _ in segRate(player.timing) }
+      NavigationLink {
+        DioramaModelsDetail(player: player, feed: feed)
+      } label: {
+        LabeledContent("Models", value: feed?.streaming == true ? "Connected" : "Not connected")
       }
     }
 
-    private func stat(_ value: String, _ name: String, over: Bool = false) -> some View {
-      VStack(alignment: .leading, spacing: 1) {
-        Text(value).font(.system(size: 15, weight: .semibold).monospacedDigit()).foregroundStyle(over ? Color.red : Color.primary)
-        Text(name.uppercased()).font(.system(size: 11)).kerning(0.6).foregroundStyle(.secondary)
+    private func row(_ name: String, _ value: @escaping (Date) -> String) -> some View {
+      TimelineView(.periodic(from: .now, by: 0.5)) { context in
+        LabeledContent(name) { Text(value(context.date)).monospacedDigit() }
       }
-      .frame(minWidth: 92, alignment: .leading)
     }
 
     private func ms(_ v: Double?) -> String { v.map { String(format: "%.1f ms", $0) } ?? "–" }
@@ -171,6 +159,32 @@
     private func median(_ a: [Double]) -> Double? { a.isEmpty ? nil : a.sorted()[a.count >> 1] }
   }
 
+  /// The models' full state, in words: the message the comma's link last gave.
+  struct DioramaModelsDetail: View {
+    let player: DioramaPlayer
+    let feed: CommaFeed?
+
+    private var connected: Bool { feed?.streaming == true }
+
+    private var message: String {
+      guard let models = player.models else { return connected ? "Running" : "Not connected" }
+      return models.prefix(1).uppercased() + models.dropFirst()
+    }
+
+    var body: some View {
+      Form {
+        LabeledContent("Comma", value: connected ? "Connected" : "Not connected")
+        Section("Message") {
+          Text(message).textSelection(.enabled)
+        }
+      }
+      .navigationTitle("Models")
+      #if os(iOS)
+        .navigationBarTitleDisplayMode(.inline)
+      #endif
+    }
+  }
+
   /// The frame the models see, each thing named above it.
   struct DioramaInputView: View {
     let picture: InputPicture
@@ -181,6 +195,15 @@
           .resizable()
           .interpolation(.none)
           .aspectRatio(2, contentMode: .fit)
+          .overlay {
+            Canvas { context, size in
+              let scale = size.height / picture.height
+              context.withCGContext { cg in
+                cg.scaleBy(x: scale, y: scale)
+                CommaPainter.draw(picture.comma, height: picture.height, in: cg)
+              }
+            }
+          }
           .overlay {
             GeometryReader { geo in
               let s = geo.size.width / 512
@@ -268,7 +291,6 @@
       if let renderer = coordinator.renderer, renderer.camera != camera || renderer.fixedView != fixedView || coordinator.preview != preview {
         renderer.camera = camera
         renderer.fixedView = fixedView
-        renderer.pathShortOfLead = preview ? DioramaRenderer.previewPathShortOfLead : 3
         coordinator.preview = preview
         coordinator.setNeedsDisplay()
       }
@@ -315,7 +337,7 @@
       nonisolated func draw(in view: MTKView) {
         MainActor.assumeIsolated {
           guard let renderer, let pass = view.currentRenderPassDescriptor else { return }
-          let frame = preview ? DioramaRenderer.preview : player.box.with { renderer.take($0) }
+          let frame = preview ? DioramaRenderer.preview(view: renderer.fixedView) : player.box.with { renderer.take($0) }
           renderer.draw(frame, to: pass, size: view.drawableSize) { commands in
             if let drawable = view.currentDrawable { commands.present(drawable) }
           }

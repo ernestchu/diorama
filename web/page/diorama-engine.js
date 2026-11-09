@@ -6,10 +6,8 @@
 // Diorama's engine: the server's messages (docs/diorama-internals.md) in, the scene out.
 // The driving model's outputs give the path, lanes, road edges, lead and ego
 // motion; the segmentation gives the road surface, which a road map holds
-// around the car. The lead is drawn from each frame's own prediction, facing
-// along its lane, when the newest segmentation has a vehicle where it is; with
-// no such lead, a vehicle the segmentation has in the car's path within 15 m
-// is one. No tracking between frames.
+// around the car. A car is drawn at each of the comma's own lead bars, facing
+// along its lane (CommaUI, as CommaUI.swift).
 //
 // Road frame throughout: x forward, y right, z down, origin at the camera, the
 // road at z = height. No browser APIs here: diorama-render.js draws the scene,
@@ -24,8 +22,6 @@
   const LEAD_MHP_N = 2, LEAD_SEL = 3, LEAD_LEN = 6, LEAD_WIDTH = 4;
   const EGO_FRONT = 1.6, EGO_REAR = -3.1;  // the ego car's bumpers, from the camera
   const OCCLUDER = 255;
-  const SEG_FRESH = 10;  // frames: a segmentation older than this (0.5 s) confirms no lead
-  const SEG_LEAD_MAX = 15, SEG_LEAD_HALF = 1.0, SEG_LEAD_WIDTH = 0.5;  // a lead the segmentation alone shows: m
 
   // ---------------------------------------------------------------- small math
   const clamp = (x, a, b) => Math.min(Math.max(x, a), b);
@@ -277,66 +273,6 @@
     const n = msg.w * msg.h, cls = new Uint8Array(n);
     for (let i = 0; i < n; i++) cls[i] = msg.qmap[i] === 255 ? 0 : qClass[msg.qmap[i]];
     return { w: msg.w, h: msg.h, ds: seg.ds, wide: !!msg.wide, cls, qmap: msg.qmap, qThing };
-  }
-
-  // Does the segmentation have a vehicle where the model puts the lead? The rear of the lead, (x, y) on the road at
-  // road height `road` (z down), seen from 0.2 to 1.4 m above it, within 2 query-map pixels either side; and that
-  // vehicle stands on the road at about the lead's distance (within 25%, or 3 m), so a car further on, seen past
-  // empty road at the lead's distance, does not count. Where it stands is the lowest of the vehicle's pixels below
-  // the hit across a car's width (1.2 m either side: its wheels, where the road shows under its middle), each
-  // column's run down from the hit's row: a vehicle behind it, in the same region of a semantic segmentation, is
-  // higher and changes nothing. One whose bottom is cut off by the frame's edge counts.
-  function segSeesVehicle(cam, seg, x, y, road) {
-    const { w, h, ds, qmap, qThing } = seg;
-    for (let up = 0.2; up <= 1.41; up += 0.2) {
-      const [u, v, depth] = cam.project(x, y, road - up);
-      if (depth <= 0) continue;
-      const cu = Math.round(u / ds), cv = Math.floor(v / ds);
-      if (cv < 0 || cv >= h) continue;
-      let q = 255;
-      for (let c = Math.max(cu - 2, 0); c <= Math.min(cu + 2, w - 1) && q === 255; c++) {
-        const k = qmap[cv * w + c];
-        if (k !== 255 && qThing[k] && qThing[k] !== 'person') q = k;
-      }
-      if (q === 255) continue;
-      // the vehicle's bottom across a car's width
-      const half = Math.ceil(cam.f * 1.2 / depth / ds);
-      let bottom = -1, at = cu;
-      for (let c = Math.max(cu - half, 0); c <= Math.min(cu + half, w - 1); c++) {
-        if (qmap[cv * w + c] !== q) continue;
-        let r = cv;
-        while (r + 1 < h && qmap[(r + 1) * w + c] === q) r++;
-        if (r > bottom) { bottom = r; at = c; }
-      }
-      if (bottom >= h - 1) return true;
-      const G = cam.groundHit((at + 0.5) * ds, (bottom + 1) * ds, road);
-      if (G && Math.abs(G[0] - x) <= Math.max(3, 0.25 * x)) return true;
-    }
-    return false;
-  }
-
-  // The nearest vehicle the segmentation has in the ego car's path, where the model has no lead: the lowest row of
-  // vehicle pixels (not a person) on the road within SEG_LEAD_HALF of the path (pathY, by distance), at
-  // least SEG_LEAD_WIDTH wide there, between the ego car's front and SEG_LEAD_MAX ahead. Where it meets the road is
-  // its distance; one cut off by the frame's bottom is at most the frame's nearest road. The rows run up from the
-  // bottom, so a vehicle behind it, higher up, changes nothing. Its distance, or null.
-  function segLeadAhead(cam, seg, pathY, road) {
-    const { w, h, ds, qmap, qThing } = seg;
-    for (let r = h - 1; r >= 0; r--) {
-      let near = false, width = 0, sum = 0, n = 0;
-      for (let c = 0; c < w; c++) {
-        const G = cam.groundHit((c + 0.5) * ds, (r + 1) * ds, road);
-        if (!G || G[0] > SEG_LEAD_MAX) continue;
-        near = true;
-        if (G[0] < EGO_FRONT || Math.abs(G[1] - pathY(G[0])) > SEG_LEAD_HALF) continue;
-        const q = qmap[r * w + c];
-        if (q === 255 || !qThing[q] || qThing[q] === 'person') continue;
-        width += ds * G[0] / cam.f; sum += G[0]; n++;
-      }
-      if (width >= SEG_LEAD_WIDTH) return sum / n;
-      if (!near) return null;  // above the rows that reach the road within SEG_LEAD_MAX
-    }
-    return null;
   }
 
   // ---------------------------------------------------------------- stop lines
@@ -850,6 +786,7 @@
       this.roadmap = this.cam ? new RoadMap(this.cam) : null;
       this.pendingSeg = []; this.lastSeg = null;
       this.pendingLines = []; this.stoplines = new StopLines();
+      this.leadBars = new CommaLeadBars(); this.leadBraking = {};
       this.stripes = []; this.stripesFrame = -1;
       this.speed = null; this.view = null; this.chooser = new ViewChooser(this.opts.view);
       this.frame = -1; this.state = null;
@@ -920,24 +857,21 @@
       const stopLine = this.stoplines.quads(k, pNow, this.trail)[0] || null;
       const stripes = stopLine ? this.stripes.concat([stopLine]) : this.stripes;
 
-      // this frame's lead, as this frame predicts it: the distance to its rear and its offset, facing along the
-      // ego lane there (its lines reach 192 m; the plan, laid out in time, can end short of a slow car's lead and
-      // turn back at its end), braking when its predicted acceleration says so. Only where the newest segmentation,
-      // at most SEG_FRESH frames old, has a vehicle. Without one, the vehicle that segmentation has in the planned
-      // path within SEG_LEAD_MAX, if any (segLeadAhead): on the path, facing along the lane, never braking, marked seg.
-      let lead = null;
-      const fresh = this.lastSeg && k - this.lastSeg.frame <= SEG_FRESH ? this.lastSeg.seg : null;
-      const freshCam = fresh && (fresh.wide ? this.wideCam : this.cam);
-      if (raw.lead_prob[0] > 0.5 && freshCam) {
-        const x = leadAt(raw.lead, 0, 0, 0), y = leadAt(raw.lead, 0, 0, 1);
-        if (segSeesVehicle(freshCam, fresh, x, y, this.cam.height + zpath(x))) {
-          lead = { x, y, heading: laneHeading(x), braking: leadAt(raw.lead, 0, 0, 3) < -0.8, seg: false };
-        }
+      // The leads: a car wherever the comma's display puts a lead bar, smoothed and faded as the display does, its rear
+      // at the bar's far edge, facing along the ego lane there. Each braking when the model's predicted acceleration
+      // for it says so, as last known while its bar fades out. `lead`, the first of them, is what the HUD and the view go by.
+      const model = commaModel(raw);
+      if (model && this.meta.frame) {
+        const f = this.meta.frame;
+        this.leadBars.advance(model, commaTransform(f), f.w, f.h, this.meta.height || COMMA.HEIGHT, COMMA.RENDERS);
       }
-      if (!lead && freshCam) {
-        const pathY = moving ? (x) => interp(x, px, py) : () => 0;
-        const x = segLeadAhead(freshCam, fresh, pathY, this.cam.height);
-        if (x !== null) lead = { x, y: pathY(x), heading: laneHeading(x), braking: false, seg: true };
+      let lead = null;
+      const leads = [];
+      for (const bar of this.leadBars.leads) {
+        if (bar.index < raw.lead_prob.length && raw.lead_prob[bar.index] > COMMA.PROB) this.leadBraking[bar.index] = leadAt(raw.lead, bar.index, 0, 3) < -0.8;
+        const car = { x: bar.x, y: bar.y, heading: laneHeading(bar.x), braking: !!this.leadBraking[bar.index] };
+        leads.push(car);
+        if (bar.index === 0) lead = car;
       }
 
       // road view or bird's-eye (ViewChooser), panning between the two
@@ -948,13 +882,194 @@
       this.view = this.view === null ? target : clamp(this.view + Math.sign(target - this.view) * stepS, Math.min(this.view, target), Math.max(this.view, target));
 
       this.state = {
-        frame: k, seconds: msg.seconds, out, px, py, pz, pv, zpath, lead,
+        frame: k, seconds: msg.seconds, out, px, py, pz, pv, zpath, lead, leads,
         planEnd: planEnd(px, Array.from({ length: IDX_N }, (_, i) => plan(out.plan, i, 6))),
         pose: pNow, stripes, stopLine, view: smoothstep(0, 1, this.view), viewWhy: target ? this.chooser.why : '',
         hud: { v: this.speed, a: plan(out.plan, 0, 6), lead: lead ? lead.x : null },
       };
       return this.state;
     }
+  }
+
+  // ---- the comma 4 display's drawing of the driving model, as CommaUI.swift ports it from zoompilot's model_renderer.py
+  // and CommaUIParityTests holds both to it: engaged, with openpilot longitudinal, no torque, the model's own leads.
+  const COMMA = { CLIP: 500, MIN_DRAW: 10, MAX_DRAW: 100, BAR_LENGTH: 12, BAR_WIDTH: 1.8, RADAR: 1.52, HEIGHT: 1.22, PROB: 0.5, OPACITY: 0.8, RENDERS: 3 };
+
+  // modelV2's fields the display reads, as modeld fills them; null without all of them
+  function commaModel(o) {
+    if (!o.plan || o.plan.length < IDX_N * PLAN_WIDTH || !o.lane_lines || o.lane_lines.length < 4 * IDX_N * 2 || !o.road_edges || o.road_edges.length < 2 * IDX_N * 2
+      || !o.road_edges_stds || o.road_edges_stds.length < 2 * IDX_N * 2 || !o.lane_lines_prob || o.lane_lines_prob.length < 8
+      || !o.lead_prob || o.lead_prob.length < 2 || !o.lead || o.lead.length < 2 * LEAD_LEN * LEAD_WIDTH) return null;
+    const range = (f) => Array.from({ length: IDX_N }, (_, i) => f(i));
+    const column = (c) => range((i) => plan(o.plan, i, c));
+    const line = (l, i) => ({ x: X_IDXS, y: range((j) => lane(l, i, j, 0)), z: range((j) => lane(l, i, j, 1)) });
+    return {
+      position: { x: column(0), y: column(1), z: column(2) }, accelerationX: column(6),
+      laneLines: [0, 1, 2, 3].map((i) => line(o.lane_lines, i)), laneLineProbs: [0, 1, 2, 3].map((i) => o.lane_lines_prob[2 * i + 1]),
+      roadEdges: [0, 1].map((i) => line(o.road_edges, i)), roadEdgeStds: [0, 1].map((i) => lane(o.road_edges_stds, i, 0, 0)),
+      leads: [0, 1].map((i) => ({ prob: o.lead_prob[i], x: leadAt(o.lead, i, 0, 0), y: leadAt(o.lead, i, 0, 1) })),
+    };
+  }
+  // road point to pixel in the frame the models see: already calibrated, so K view_from_device
+  const commaTransform = (f) => m3mul([f.f, 0, f.cx, 0, f.f, f.cy, 0, 0, 1], VIEW_FROM_DEVICE);
+
+  function commaProject(T, x, y, z) { return [T[0] * x + T[1] * y + T[2] * z, T[3] * x + T[4] * y + T[5] * z, T[6] * x + T[7] * y + T[8] * z]; }
+
+  function commaRibbon(T, W, H, line, yOff, zOff, maxIdx, allowInvert) {
+    const m = COMMA.CLIP, inClip = (p) => p[0] >= -m && p[0] <= W + m && p[1] >= -m && p[1] <= H + m;
+    let left = [], right = [];
+    for (let i = 0; i <= Math.min(maxIdx, line.x.length - 1); i++) {
+      if (!(line.x[i] >= 0)) continue;
+      const l = commaProject(T, line.x[i], line.y[i] - yOff, line.z[i] + zOff), r = commaProject(T, line.x[i], line.y[i] + yOff, line.z[i] + zOff);
+      if (Math.abs(l[2]) < 1e-6 || Math.abs(r[2]) < 1e-6) continue;
+      const a = [l[0] / l[2], l[1] / l[2]], b = [r[0] / r[2], r[1] / r[2]];
+      if (!inClip(a) || !inClip(b)) continue;
+      left.push(a); right.push(b);
+    }
+    // a hill's far side comes back down the picture: only points higher up than all before them stay
+    if (!allowInvert && left.length > 1) {
+      let lowest = Infinity;
+      const keep = [];
+      left.forEach((p, i) => { lowest = Math.min(lowest, p[1]); if (p[1] === lowest) keep.push(i); });
+      left = keep.map((i) => left[i]); right = keep.map((i) => right[i]);
+    }
+    return left.concat(right.reverse());
+  }
+
+  function commaLeadBar(T, lane_, d, yRel, roadHeight) {
+    const xs = [d, d - Math.min(6, 0.25 * d)], at = interp(d, lane_.x, lane_.y);
+    const ys = xs.map((x) => interp(x, lane_.x, lane_.y) - at - yRel), zs = xs.map((x) => interp(x, lane_.x, lane_.z) + roadHeight), half = COMMA.BAR_WIDTH / 2;
+    const bar = [[xs[0], ys[0] + half, zs[0]], [xs[1], ys[1] + half, zs[1]], [xs[1], ys[1] - half, zs[1]], [xs[0], ys[0] - half, zs[0]]].map(([x, y, z]) => {
+      const p = commaProject(T, x, y, z);
+      return [p[0] / p[2], p[1] / p[2]];
+    });
+    const mx = (bar[1][0] + bar[2][0]) / 2 - (bar[0][0] + bar[3][0]) / 2, my = (bar[1][1] + bar[2][1]) / 2 - (bar[0][1] + bar[3][1]) / 2, length = Math.hypot(mx, my);
+    if (length > 0) {
+      const k = clamp(length, 3, COMMA.BAR_LENGTH) / length;
+      bar[1] = [bar[0][0] + (bar[1][0] - bar[0][0]) * k, bar[0][1] + (bar[1][1] - bar[0][1]) * k];
+      bar[2] = [bar[3][0] + (bar[2][0] - bar[3][0]) * k, bar[3][1] + (bar[2][1] - bar[3][1]) * k];
+    }
+    return bar;
+  }
+
+  // the two leads the display considers, closer than 3 m being the same vehicle
+  function commaLeads(m) {
+    const leads = m.leads.slice(0, 2).map((l) => ({ present: l.prob > COMMA.PROB, d: l.x, y: -l.y }));
+    if (leads.length === 2 && leads[0].present && Math.abs(leads[1].d - leads[0].d) < 3) leads[1] = { present: false, d: 0, y: 0 };
+    return leads;
+  }
+
+  class CommaFilter {
+    constructor(rc, initialized) { const dt = 1 / 60; this.alpha = dt / (rc + dt); this.x = 0; this.initialized = initialized; }
+    update(v) { this.x = this.initialized ? (1 - this.alpha) * this.x + this.alpha * v : v; this.initialized = true; return this.x; }
+  }
+
+  // The display's lead bars over time: each model frame is COMMA.RENDERS of its frames, the bars' distance, offset and
+  // opacity lagging as its FirstOrderFilters do. A lead that goes fades out where its bar last was.
+  class CommaLeadBars {
+    constructor() {
+      this.vehicles = [0, 1].map(() => ({ d: new CommaFilter(0.2, false), y: new CommaFilter(0.2, false), fade: new CommaFilter(0.1, true), bar: [] }));
+    }
+    advance(m, T, W, H, roadHeight, renders) {
+      const leads = commaLeads(m);
+      for (let r = 0; r < renders; r++) {
+        this.vehicles.forEach((v, i) => {
+          if (i >= leads.length) return;
+          const lead = leads[i], visible = lead.present && lead.d < COMMA.MAX_DRAW && m.position.x.length > 0;
+          // snap to a new vehicle instead of sliding over
+          if (!visible || Math.abs(lead.y - v.y.x) > 3) v.d.initialized = v.y.initialized = false;
+          v.fade.update(visible ? COMMA.OPACITY : 0);
+          if (visible) v.bar = commaLeadBar(T, m.position, v.d.update(lead.d), v.y.update(lead.y), roadHeight);
+        });
+      }
+    }
+    alpha(v) { return Math.floor(clamp(255 * v.fade.x, 0, 255)); }
+    // each bar while any of it shows, the far edge's middle on the road: where that lead's rear is
+    get leads() {
+      return this.vehicles.flatMap((v, index) => (v.bar.length >= 3 && this.alpha(v) > 0 ? [{ index, x: v.d.x, y: -v.y.x }] : []));
+    }
+    get polygons() {
+      return this.vehicles.filter((v) => v.bar.length >= 3 && this.alpha(v) > 0).map((v) => ({ points: v.bar, color: [255, 255, 255, this.alpha(v)] }));
+    }
+  }
+
+  function commaHsla(h, s, l, a) {
+    const byte = (v) => Math.floor(clamp(v * 255, 0, 255));
+    if (s === 0) return [byte(l), byte(l), byte(l), byte(a)];
+    const m2 = l <= 0.5 ? l * (1 + s) : l + s - l * s, m1 = 2 * l - m2;
+    const channel = (hue) => {
+      const h1 = hue - Math.floor(hue);
+      if (h1 < 1 / 6) return m1 + (m2 - m1) * h1 * 6;
+      if (h1 < 0.5) return m2;
+      if (h1 < 2 / 3) return m1 + (m2 - m1) * (2 / 3 - h1) * 6;
+      return m1;
+    };
+    return [byte(channel(h + 1 / 3)), byte(channel(h)), byte(channel(h - 1 / 3)), byte(a)];
+  }
+
+  // the path's color, climbing the picture with its acceleration
+  function commaPathFill(path, acceleration, H) {
+    const maxLen = Math.min(Math.floor(path.length / 2), acceleration.length), colors = [], stops = [];
+    let i = 0;
+    while (i < maxLen) {
+      const y = path[i][1];
+      if (y < 0 || y > H) { i++; continue; }
+      const point = 1 - y / H, a = acceleration[i];
+      const hue = clamp(60 + a * 35, 0, 120), saturation = Math.min(Math.abs(a * 1.5), 1);
+      const lightness = interp(saturation, [0, 1], [0.95, 0.62]), alpha = interp(point, [0.75 / 2, 0.75], [0.4, 0]);
+      stops.push(point);
+      colors.push(commaHsla(hue / 360, saturation, lightness, alpha));
+      i += 1 + (i + 2 < maxLen ? 1 : 0);
+    }
+    return colors.length > 1 ? { colors, stops } : { color: [255, 255, 255, 30] };
+  }
+
+  // the display's shader at t up the picture: [r, g, b, a] from 0 to 1, straight alpha, mixed between stops
+  function commaColor(t, colors, stops) {
+    const value = (c) => c.map((v) => v / 255), s = stops.map((v) => clamp(v, 0, 1)), n = colors.length;
+    if (t <= s[0]) return value(colors[0]);
+    if (t >= s[n - 1]) return value(colors[n - 1]);
+    for (let i = 0; i < n - 1; i++) {
+      if (t >= s[i] && t <= s[i + 1]) {
+        const k = (t - s[i]) / Math.max(s[i + 1] - s[i], 1e-6), a = value(colors[i]), b = value(colors[i + 1]);
+        return a.map((v, c) => v + (b[c] - v) * k);
+      }
+    }
+    return value(colors[n - 1]);
+  }
+
+  // What the display draws over a frame of the models', in drawing order: { points, color } or { points, colors, stops }.
+  // leadBars: its bars, or null for each lead's settled at this frame.
+  function commaPolygons(m, T, W, H, roadHeight, leadBars = null) {
+    const out = [], lastX = m.position.x[m.position.x.length - 1];
+    if (lastX === undefined) return out;
+    const add = (points, fill) => { if (!(fill.color && fill.color[3] === 0) && points.length >= 3) out.push({ points, ...fill }); };
+    const lengthIdx = (xs, d) => { for (let i = xs.length - 1; i >= 0; i--) if (xs[i] <= d) return i; return 0; };
+    const laneColor = (prob, adjacent) => {
+      const a = Math.floor(clamp(prob, 0, 0.7) * 255);
+      return { color: adjacent ? [0, 255, 64, a] : [255, 255, 255, a] };
+    };
+    let maxDistance = clamp(lastX, COMMA.MIN_DRAW, COMMA.MAX_DRAW);
+    const maxIdx = lengthIdx(m.laneLines[0].x, maxDistance);
+    // the factor stays at 0.16 from the second line on: the fourth line and the road edges have it too
+    let widthFactor = 0.12;
+    m.laneLines.forEach((line, i) => {
+      if (i === 1 || i === 2) widthFactor = 0.16;
+      add(commaRibbon(T, W, H, line, widthFactor * m.laneLineProbs[i], 0, maxIdx, true), laneColor(m.laneLineProbs[i], i === 1 || i === 2));
+    });
+    m.roadEdges.forEach((edge, i) => add(commaRibbon(T, W, H, edge, widthFactor, 0, maxIdx, true), laneColor(1 - m.roadEdgeStds[i], m.laneLineProbs[i + 1] < 0.25)));
+    // radarState.leadOne, as radard makes it from the model's lead
+    if (m.leads.length && m.leads[0].prob > COMMA.PROB) {
+      const d = (m.leads[0].x - COMMA.RADAR) * 2;
+      maxDistance = clamp(d - Math.min(d * 0.35, 10), 0, maxDistance);
+    }
+    const path = commaRibbon(T, W, H, m.position, 0.9, roadHeight, lengthIdx(m.position.x, maxDistance), false);
+    add(path, commaPathFill(path, m.accelerationX, H));
+    if (leadBars) return out.concat(leadBars);
+    for (const lead of commaLeads(m)) {
+      if (lead.present && lead.d < COMMA.MAX_DRAW) add(commaLeadBar(T, m.position, lead.d, lead.y, roadHeight), { color: [255, 255, 255, Math.floor(255 * COMMA.OPACITY)] });
+    }
+    return out;
   }
 
   function keepLast(arr, v, n) { arr.push(v); if (arr.length > n) arr.shift(); }
@@ -967,17 +1082,19 @@
     const a = (v) => Array.from(v || []);
     return {
       frame: s.frame, seconds: s.seconds, px: a(s.px), py: a(s.py), pz: a(s.pz), pv: a(s.pv), pose: a(s.pose),
-      lead: s.lead && { x: s.lead.x, y: s.lead.y, heading: s.lead.heading, braking: s.lead.braking, seg: s.lead.seg },
+      lead: s.lead && { x: s.lead.x, y: s.lead.y, heading: s.lead.heading, braking: s.lead.braking },
+      leads: s.leads.map((l) => ({ x: l.x, y: l.y, heading: l.heading, braking: l.braking })),
       stopLine: s.stopLine, stripes: s.stripes, view: s.view, viewWhy: s.viewWhy, planEnd: s.planEnd ?? null,
       hud: { v: s.hud.v, a: s.hud.a, lead: s.hud.lead },
     };
   }
 
   const api = {
-    FPS, DT, MPH, IDX_N, X_IDXS, EGO_FRONT, EGO_REAR, SEG_LEAD_MAX,
+    FPS, DT, MPH, IDX_N, X_IDXS, EGO_FRONT, EGO_REAR,
     clamp, smoothstep, interp, percentile, m3mul, m3inv, m3vec, VIEW_FROM_DEVICE,
     decode, readFile, parseDrive, plan, lane, leadAt, FrameCamera, RoadMap, Engine, ViewChooser, VIEW,
-    readSeg, segSeesVehicle, segLeadAhead, morph, runs, components, snapshot, egoLane, fitToLane, planEnd, PLAN_BRAKE,
+    readSeg, morph, runs, components, snapshot, egoLane, fitToLane, planEnd, PLAN_BRAKE,
+    COMMA, commaModel, commaTransform, commaPolygons, commaColor, CommaLeadBars,
   };
   if (typeof module !== 'undefined' && module.exports) module.exports = api;
   root.DioramaEngine = api;

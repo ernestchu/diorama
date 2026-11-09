@@ -51,19 +51,12 @@
     }
 
 
-    /// Each view's default: the first camera further back with as much more zoom, the
-    /// picture moved so the car sits where the first camera drew it.
-    public static let defaults = DioramaCamera(road: defaultView(0), bird: defaultView(1))
-
-    /// The view the default eye gives: its angle above the pivot, and the first zoom
-    /// scaled up from there with the picture moved to keep the car in place.
-    static func defaultView(_ view: Int) -> View {
-      let eye = view == 0 ? DioramaRenderer.roadEye(0).eye : DioramaRenderer.birdEye(0).eye
-      let first = view == 0 ? DioramaRenderer.firstZoom.road : DioramaRenderer.firstZoom.bird
-      var v = View(zoom: first, pitch: pitch(eye, 0), forward: 0)
-      zoom(&v, to: first * DioramaRenderer.defaultBack, view: view)
-      return v
-    }
+    /// Each view's default, as set by hand over the still scene. A view's numbers are its
+    /// offsets from that view's default eye (DioramaRenderer.roadEye, birdEye), so they
+    /// change meaning if the eyes do.
+    public static let defaults = DioramaCamera(
+      road: View(zoom: 2.6598371201128326, pitch: 39.12907435385786, forward: -3.4735833802432445, rise: -1.6272318717043415, shift: -0.2940157363439427),
+      bird: View(zoom: 5.654759524127969, pitch: 64.00388385536853, forward: -6.631731707020976, rise: 0.19157520745765497, shift: -1.130995818843144))
 
     /// How far below the camera's axis the ego car's middle is, as a slope (down over
     /// forward), or nil when the camera has moved past it.
@@ -78,7 +71,7 @@
     /// under the fingers. Nil where there is no road under them (above the horizon, or
     /// too far off to follow).
     public static func metresFollowing(_ v: View, view: Int, dy: Double, x: Double, y: Double, w: Double, h: Double) -> Double? {
-      let hgt = DioramaRenderer.preview.height
+      let hgt = DioramaRenderer.preview(view: Double(view)).height
       var setup = defaults
       setup[view] = v
       let cam = DioramaRenderer.camera(Double(view), hgt, w, h, setup)
@@ -117,7 +110,8 @@
     /// Moves a view's camera `metres` forward along the road, level with it, whatever
     /// its pitch: the offset in the turned frame takes the road's forward turned back.
     public static func moveForward(_ v: inout View, _ metres: Double, view: Int) {
-      let a = (defaults[view].pitch - v.pitch) * .pi / 180
+      let eye = view == 0 ? DioramaRenderer.roadEye(0).eye : DioramaRenderer.birdEye(0).eye
+      let a = (pitch(eye, 0) - v.pitch) * .pi / 180
       v.forward += metres * cos(a)
       v.rise -= metres * sin(a)
     }
@@ -173,8 +167,8 @@
     static let leadPaint: SIMD3<Float> = [0.62, 0.62, 0.64], egoPaint: SIMD3<Float> = [0.66, 0.66, 0.68]
     static let sampleCount = 4
     static let colorFormat = MTLPixelFormat.bgra8Unorm, depthFormat = MTLPixelFormat.depth32Float
-    /// The model's road and lane lines, rasterised in the ego frame each frame (x -30..90 m, y -30..30 m, 0.1 m).
-    static let maskSize = (w: 600, h: 1200)
+    /// The model's road and lane lines, rasterised in the ego frame each frame (x -30..210 m, y -60..60 m, 0.1 m).
+    static let maskSize = (w: 1200, h: 2400)
 
     let device: MTLDevice
     var theme = Theme.dark
@@ -182,8 +176,6 @@
     var camera = DioramaCamera.defaults
     /// One view whatever the drive's view chooser says: 0 the road view, 1 the bird's-eye.
     var fixedView: Double?
-    /// How far short of the lead the planned path stops: 3 m on a drive.
-    var pathShortOfLead = 3.0
     private let queue: MTLCommandQueue
     private let sky, ground, decal, mesh, maskRoad, maskPaint: MTLRenderPipelineState
     private let depthWrite, depthTestOnly, depthOff: MTLDepthStencilState
@@ -324,10 +316,9 @@
     // MARK: the virtual camera
 
     /// The two views' first cameras: where the eye sat and what it looked at, in the road
-    /// frame (x forward, z down) with the road at `hgt`, and their zooms.
+    /// frame (x forward, z down) with the road at `hgt`.
     static func firstRoadEye(_ hgt: Double) -> (eye: [Double], target: [Double]) { ([Diorama.egoRear - 6.5, 0, hgt - 3.2], [18, 0, hgt]) }
     static func firstBirdEye(_ hgt: Double) -> (eye: [Double], target: [Double]) { ([-14, 0, hgt - 30], [10, 0, hgt]) }
-    static let firstZoom = (road: 0.62, bird: 0.69)
 
     /// How many times further back than the first cameras the default views sit, along
     /// the line to the car and looking the same way, with as many times the zoom: the
@@ -484,9 +475,9 @@
     }
 
     /// A model line (sampled at xIdxs) as 3D points, extended straight back behind the ego car.
-    static func modelLine(_ ys: [Double], _ hgt: Double, xMax: Double = 80, xBack: Double = -25) -> [SIMD3<Double>] {
+    static func modelLine(_ ys: [Double], _ hgt: Double, xBack: Double = -25) -> [SIMD3<Double>] {
       var pts = [SIMD3(xBack, ys[0], hgt)]
-      for i in 0..<Diorama.idxN where Diorama.xIdxs[i] < xMax { pts.append(SIMD3(Diorama.xIdxs[i], ys[i], hgt)) }
+      for i in 0..<Diorama.idxN { pts.append(SIMD3(Diorama.xIdxs[i], ys[i], hgt)) }
       return pts
     }
 
@@ -502,11 +493,15 @@
       let mapUploaded: Bool
     }
 
-    /// The still scene the camera is set over, the same whatever the comma is doing:
-    /// the ego car on a straight road between two lane lines, a lead 10 m ahead of its
-    /// bumper, and the planned path stopping 2 m short of it. Only the driving model's
-    /// kind of drawing; nothing from the segmentation.
-    static let preview: Frame = {
+    /// The still scene a view's camera is set over, the same whatever the comma is doing:
+    /// the road view's lead far off, as it is seen cruising, the bird's-eye's close by.
+    static func preview(view: Double?) -> Frame { view == 1 ? previewBird : previewRoad }
+    private static let previewRoad = previewFrame(leadAhead: 60), previewBird = previewFrame(leadAhead: 10)
+
+    /// The ego car on a straight road between two lane lines, a lead `leadAhead` metres
+    /// ahead of its bumper, and the planned path. Only the driving model's kind of drawing;
+    /// nothing from the segmentation.
+    private static func previewFrame(leadAhead: Double) -> Frame {
       let n = Diorama.idxN, xs = Diorama.xIdxs
       var out = DioramaOutputs()
       func lines(_ ys: [Double]) -> [Double] { ys.flatMap { y in (0..<n).flatMap { _ in [y, 0] } } }
@@ -515,14 +510,12 @@
       out.laneLinesProb = [1, 0, 0, 1, 0, 1, 1, 0]  // the ego lane's two lines only
       out.roadEdges = lines([-5.6, 5.6])
       out.roadEdgesStds = Array(repeating: 0.1, count: out.roadEdges.count)
-      let lead = DioramaScene.Lead(x: Diorama.egoFront + 10, y: 0, heading: 0, braking: false, seg: false)
+      let lead = DioramaScene.Lead(x: Diorama.egoFront + leadAhead, y: 0, heading: 0, braking: false)
       let state = DioramaScene.State(
         frame: 0, seconds: 0, out: out, px: xs, py: Array(repeating: 0, count: n), pz: Array(repeating: 0, count: n), lead: lead,
         pose: .zero, stripes: [], view: 0, viewWhy: "", speed: 0, accel: 0, leadDistance: lead.x)
       return Frame(state: state, height: 1.22, origin: nil, mapUploaded: false)
-    }()
-    /// How far short of the lead the preview's path stops.
-    static let previewPathShortOfLead = 2.0
+    }
 
     /// Takes what the frame needs from the scene. Call under the scene's lock.
     func take(_ scene: DioramaScene) -> Frame {
@@ -672,17 +665,16 @@
       enc.drawPrimitives(type: .triangle, vertexStart: 0, vertexCount: data.count / stride)
     }
 
-    struct Object { let x, y, heading, length, width: Double, braking, seg: Bool }
+    struct Object { let x, y, heading, length, width: Double, braking: Bool }
 
-    /// Only the lead, from this frame's prediction, as the one car: its rear at the model's distance, facing along its lane.
+    /// A car for each lead: its rear at the lead, facing along its lane.
     private func objects(_ state: DioramaScene.State) -> [Object] {
-      guard let l = state.lead, let car else { return [] }
+      guard let car else { return [] }
       let length = car.dims[0], width = car.dims[1]
-      return [
+      return state.leads.map { l in
         Object(
-          x: l.x + 0.5 * length * cos(l.heading), y: l.y + 0.5 * length * sin(l.heading), heading: l.heading, length: length, width: width, braking: l.braking,
-          seg: l.seg)
-      ]
+          x: l.x + 0.5 * length * cos(l.heading), y: l.y + 0.5 * length * sin(l.heading), heading: l.heading, length: length, width: width, braking: l.braking)
+      }
     }
 
     private func drawDecals(_ enc: MTLRenderCommandEncoder, _ state: DioramaScene.State, _ objs: [Object], _ hgt: Double, _ uniforms: inout FrameUniforms) {
@@ -696,7 +688,7 @@
         for i in 0..<2 {
           let pts = Self.modelLine(Self.line(out.roadEdges, i), hgt)
           let a = Diorama.clamp(1 - out.roadEdgesStds[i * Diorama.idxN * 2], 0.3, 1) * 0.5
-          Self.ribbon(&tris, pts, 0.4, th.edge, pts.map { a * (1 - Diorama.smoothstep(55, 85, $0.x)) }, soft: true)
+          Self.ribbon(&tris, pts, 0.4, th.edge, pts.map { a * (1 - Diorama.smoothstep(130, 190, $0.x)) }, soft: true)
         }
       }
       // lane lines, faded by probability and distance
@@ -705,7 +697,7 @@
           let p = Diorama.clamp(out.laneLinesProb[2 * i + 1], 0, 1)
           if p < 0.15 { continue }
           let pts = Self.modelLine(Self.line(out.laneLines, i), hgt)
-          Self.ribbon(&tris, pts, 0.065, th.paint, pts.map { 0.95 * p * (1 - Diorama.smoothstep(60, 90, $0.x)) }, soft: false)
+          Self.ribbon(&tris, pts, 0.065, th.paint, pts.map { 0.95 * p * (1 - Diorama.smoothstep(130, 190, $0.x)) }, soft: false)
         }
       }
       // crosswalk stripes (held in the world, drawn in this frame)
@@ -725,8 +717,9 @@
         }
         Self.polygon(&tris, q, hgt, th.paint, 0.95)
       }
-      // the planned path, cut short of the lead, and where the plan stops braking and speeds up again (planEnd)
-      let px = state.px, maxD = min(state.lead.map { max($0.x - pathShortOfLead, 0) } ?? 80, state.planEnd ?? .infinity)
+      // the planned path, on to where the plan stops braking and speeds up again (planEnd); under the lead if it gets
+      // there, as the two are independent
+      let px = state.px, maxD = min(80, state.planEnd ?? .infinity)
       var pts: [SIMD3<Double>] = []
       for i in 0..<Diorama.idxN {
         if px[i] >= maxD {
@@ -788,8 +781,8 @@
             type: .triangle, indexCount: part.count, indexType: .uint16, indexBuffer: car.indices, indexBufferOffset: part.indexOffset * 2)
         }
       }
-      // the model's lead under the path's tint; one the segmentation alone shows, plain
-      for o in objs { draw(o.x, o.y, o.heading, paint: Self.leadPaint, tint: th.path, tintAmt: o.seg ? 0 : 0.55, spec: 0.06, brake: o.braking ? 1 : 0) }
+      // the model's lead under the path's tint
+      for o in objs { draw(o.x, o.y, o.heading, paint: Self.leadPaint, tint: th.path, tintAmt: 0.55, spec: 0.06, brake: o.braking ? 1 : 0) }
       draw((Diorama.egoFront + Diorama.egoRear) / 2, 0, 0, paint: Self.egoPaint, tint: nil, tintAmt: 0, spec: 0.35, brake: 0)
     }
 
@@ -827,7 +820,7 @@
                                texture2d<float> map_a [[texture(0)]], texture2d<float> map_b [[texture(1)]], texture2d<float> mask [[texture(2)]],
                                sampler mip [[sampler(0)]], sampler lin [[sampler(1)]]) {
         float3 vw = in.w, c = g.ground.rgb;
-        float2 muv = float2((vw.y + 30.0) / 60.0, (90.0 - vw.x) / 120.0);
+        float2 muv = float2((vw.y + 60.0) / 120.0, (210.0 - vw.x) / 240.0);
         float4 m = mask.sample(lin, muv) * ((muv.x > 0.0 && muv.x < 1.0 && muv.y > 0.0 && muv.y < 1.0) ? 1.0 : 0.0);
         // every texture read in uniform control flow (they are mipmapped), masked after
         float2 uv = map_uv(vw.xy, g);
@@ -845,10 +838,10 @@
         return float4(apply_fog(c, vw, f), 1.0);
       }
 
-      // the ego-frame mask: x -30..90 m down the texture from its top row, y -30..30 m across
+      // the ego-frame mask, as far ahead as the driving model sees: x -30..210 m down the texture from its top row, y -60..60 m across
       vertex float4 mask_v(uint vid [[vertex_id]], const device float2* v [[buffer(0)]]) {
         float2 p = v[vid];
-        return float4(p.y / 30.0, (p.x - 30.0) / 60.0, 0.0, 1.0);
+        return float4(p.y / 60.0, (p.x - 90.0) / 120.0, 0.0, 1.0);
       }
       fragment float4 mask_f() { return float4(1.0); }
 
