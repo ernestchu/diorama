@@ -1,4 +1,4 @@
-"""Pilot training on the SLSDNet stop-line dataset (+ teacher lead boxes). Two GPUs:
+"""Pilot training on the SLSDNet stop-line dataset. Two GPUs:
 
   torchrun --nproc_per_node 2 train.py --out runs/pilot
 """
@@ -7,7 +7,7 @@ import numpy as np, cv2, torch
 import torch.distributed as dist
 import torch.nn.functional as F
 from torch.utils.data import Dataset, DataLoader, DistributedSampler
-from model import Net, decode, STRIDE, END_SCALE, WH_SCALE
+from model import Net, decode, STRIDE, END_SCALE
 
 from paths import SLSD as DATA
 W, H = 512, 256
@@ -77,18 +77,6 @@ class Pilot(Dataset):
         line = c if c[0] <= c[2] else [c[2], c[3], c[0], c[1]]
       elif c is not None:
         line_ok = 0.0  # a sliver of a line: neither a line nor no line
-    lead, lead_ok = None, 1.0
-    if v['lead'] is not None:
-      x1, y1, x2, y2 = v['lead']
-      ps = np.array([pt(x1, y1), pt(x2, y1), pt(x1, y2), pt(x2, y2)])
-      bx1, by1, bx2, by2 = ps[:, 0].min(), ps[:, 1].min(), ps[:, 0].max(), ps[:, 1].max()
-      cx1, cy1, cx2, cy2 = max(bx1, 0), max(by1, 0), min(bx2, W), min(by2, H)
-      area = (bx2 - bx1) * (by2 - by1)
-      vis = max(0, cx2 - cx1) * max(0, cy2 - cy1)
-      if vis >= 0.6 * area and cx2 - cx1 >= 4 and cy2 - cy1 >= 4:
-        lead = [cx1, cy1, cx2, cy2]
-      elif vis > 0:
-        lead_ok = 0.0
 
     y = out[..., 0].astype(np.float32)
     uv = cv2.resize(out[..., 1:], (W // 2, H // 2), interpolation=cv2.INTER_AREA).astype(np.float32)  # 4:2:0
@@ -105,7 +93,7 @@ class Pilot(Dataset):
       uv = np.clip(uv + 128 + np.random.randn(*uv.shape).astype(np.float32) * random.uniform(0, 1.5), 0, 255)
     x = torch.from_numpy(y)[None]
     c = torch.from_numpy(np.ascontiguousarray(uv.transpose(2, 0, 1)))
-    return x, c, targets(line, lead, line_ok, lead_ok), name
+    return x, c, targets(line, line_ok), name
 
 
 def gaussian(cx, cy, sx, sy):
@@ -113,12 +101,11 @@ def gaussian(cx, cy, sx, sy):
   return np.exp(-((xs - cx) ** 2 / (2 * sx * sx) + (ys - cy) ** 2 / (2 * sy * sy)))
 
 
-def targets(line, lead, line_ok, lead_ok):
-  t = {k: np.zeros(s, np.float32) for k, s in (('lheat', (GH, GW)), ('lmask', (GH, GW)), ('lreg', (6,)),
-                                                ('cheat', (GH, GW)), ('creg', (4,)))}
-  t['lidx'] = np.int64(0); t['cidx'] = np.int64(0)
-  t['lhas'] = np.float32(0); t['chas'] = np.float32(0)
-  t['lok'] = np.float32(line_ok); t['cok'] = np.float32(lead_ok)
+def targets(line, line_ok):
+  t = {k: np.zeros(s, np.float32) for k, s in (('lheat', (GH, GW)), ('lmask', (GH, GW)), ('lreg', (6,)))}
+  t['lidx'] = np.int64(0)
+  t['lhas'] = np.float32(0)
+  t['lok'] = np.float32(line_ok)
   if line is not None:
     x1, y1, x2, y2 = [v / STRIDE for v in line]
     cx, cy = (x1 + x2) / 2, (y1 + y2) / 2
@@ -132,15 +119,6 @@ def targets(line, lead, line_ok, lead_ok):
     cv2.line(m, (int(x1 * 4), int(y1 * 4)), (int(x2 * 4), int(y2 * 4)), 1, 6)
     t['lmask'] = cv2.resize(m.astype(np.float32), (GW, GH), interpolation=cv2.INTER_AREA)
     t['lhas'] = np.float32(1)
-  if lead is not None:
-    x1, y1, x2, y2 = [v / STRIDE for v in lead]
-    cx, cy, bw, bh = (x1 + x2) / 2, (y1 + y2) / 2, x2 - x1, y2 - y1
-    ix, iy = min(GW - 1, int(cx)), min(GH - 1, int(cy))
-    t['cheat'] = gaussian(cx, cy, max(0.8, bw / 6), max(0.8, bh / 6))
-    t['cheat'][iy, ix] = 1.0
-    t['cidx'] = np.int64(iy * GW + ix)
-    t['creg'] = np.array([cx - ix, cy - iy, bw / WH_SCALE, bh / WH_SCALE], np.float32)
-    t['chas'] = np.float32(1)
   return {k: torch.as_tensor(v) for k, v in t.items()}
 
 
@@ -158,52 +136,35 @@ def at(maps, idx):
   return maps.flatten(2).gather(2, idx[:, None, None].expand(-1, maps.shape[1], 1))[..., 0]
 
 
-def losses(line, lead, t):
+def losses(line, t):
   lw = t['lhas'] * t['lok']
-  cw = t['chas'] * t['cok']
   lr = at(line[:, 1:7].float(), t['lidx'])
-  cr = at(lead[:, 1:5].float(), t['cidx'])
   out = {
     'lheat': focal(line[:, 0], t['lheat'], t['lok']),
     'loff': (F.l1_loss(lr[:, :2], t['lreg'][:, :2], reduction='none').sum(1) * lw).sum() / lw.sum().clamp(min=1),
     'lend': 4 * (F.l1_loss(lr[:, 2:], t['lreg'][:, 2:], reduction='none').sum(1) * lw).sum() / lw.sum().clamp(min=1),
     'lmask': 0.5 * (F.binary_cross_entropy_with_logits(line[:, 7].float(), t['lmask'], reduction='none')
                     .flatten(1).mean(1) * t['lok']).mean() * 10,
-    'cheat': focal(lead[:, 0], t['cheat'], t['cok']),
-    'coff': (F.l1_loss(cr[:, :2], t['creg'][:, :2], reduction='none').sum(1) * cw).sum() / cw.sum().clamp(min=1),
-    'cwh': 2 * (F.l1_loss(cr[:, 2:], t['creg'][:, 2:], reduction='none').sum(1) * cw).sum() / cw.sum().clamp(min=1),
   }
   return sum(out.values()), out
 
 
-def iou(a, b):
-  ix = max(0, min(a[2], b[2]) - max(a[0], b[0])); iy = max(0, min(a[3], b[3]) - max(a[1], b[1]))
-  u = (a[2] - a[0]) * (a[3] - a[1]) + (b[2] - b[0]) * (b[3] - b[1]) - ix * iy
-  return ix * iy / u if u > 0 else 0
-
-
 @torch.no_grad()
 def evaluate(model, loader, device):
-  """Stop line: a hit is the top line with both ends within 20 px (of 512) of the label's.
-  Lead: a hit is the box with IoU >= 0.5 against the teacher's lead."""
+  """Stop line: a hit is the top line with both ends within 20 px (of 512) of the label's."""
   model.eval()
   recs = []
   for x, c, t, names in loader:
-    line, lead = model(x.to(device), c.to(device))
-    for n, d in enumerate(decode(line.float(), lead.float(), line_thresh=0.0, lead_thresh=0.0, max_lines=1)):
-      rec = {'name': names[n], 'lok': t['lok'][n].item(), 'cok': t['cok'][n].item()}
+    line = model(x.to(device), c.to(device))
+    for n, d in enumerate(decode(line.float(), line_thresh=0.0, max_lines=1)):
+      rec = {'name': names[n], 'lok': t['lok'][n].item()}
       if t['lhas'][n] > 0:
         g = t['lreg'][n].numpy(); idx = t['lidx'][n].item()
         cx, cy = idx % GW + g[0], idx // GW + g[1]
         gl = [(cx + g[2] * END_SCALE) * STRIDE, (cy + g[3] * END_SCALE) * STRIDE,
               (cx + g[4] * END_SCALE) * STRIDE, (cy + g[5] * END_SCALE) * STRIDE]
         rec['gl'] = gl
-      if t['chas'][n] > 0:
-        g = t['creg'][n].numpy(); idx = t['cidx'][n].item()
-        cx, cy, bw, bh = idx % GW + g[0], idx // GW + g[1], g[2] * WH_SCALE, g[3] * WH_SCALE
-        rec['gc'] = [(cx - bw / 2) * STRIDE, (cy - bh / 2) * STRIDE, (cx + bw / 2) * STRIDE, (cy + bh / 2) * STRIDE]
       rec['pl'] = d['lines'][0] if d['lines'] else None
-      rec['pc'] = d['lead']
       recs.append(rec)
   model.train()
   return recs
@@ -231,20 +192,6 @@ def score(recs, subset=None):
     res[f'line@{th}'] = {'P': round(pr, 4), 'R': round(rc, 4), 'F1': round(2 * pr * rc / max(1e-9, pr + rc), 4),
                          'end_err_med': round(float(np.median(errs)), 2) if errs else None,
                          'row_err_med': round(float(np.median(rows)), 2) if rows else None}
-    tp = fp = fn = 0; ious = []
-    for r in recs:
-      if not r['cok']: continue
-      p = r['pc'] if r['pc'] and r['pc'][4] >= th else None
-      g = r.get('gc')
-      if p and g:
-        o = iou(p, g)
-        if o >= 0.5: tp += 1; ious.append(o)
-        else: fp += 1; fn += 1
-      elif p: fp += 1
-      elif g: fn += 1
-    pr, rc = tp / max(1, tp + fp), tp / max(1, tp + fn)
-    res[f'lead@{th}'] = {'P': round(pr, 4), 'R': round(rc, 4), 'F1': round(2 * pr * rc / max(1e-9, pr + rc), 4),
-                         'iou_mean': round(float(np.mean(ious)), 3) if ious else None}
   return res
 
 
@@ -289,8 +236,8 @@ def main():
       x, c = x.to(device, non_blocking=True), c.to(device, non_blocking=True)
       t = {k: v.to(device, non_blocking=True) for k, v in t.items()}
       with torch.autocast('cuda', dtype=torch.bfloat16):
-        line, lead = ddp(x, c)
-      loss, parts = losses(line, lead, t)
+        line = ddp(x, c)
+      loss, parts = losses(line, t)
       opt.zero_grad(set_to_none=True)
       loss.backward()
       torch.nn.utils.clip_grad_norm_(model.parameters(), 10.0)

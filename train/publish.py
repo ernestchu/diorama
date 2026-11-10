@@ -9,7 +9,7 @@ Exports the checkpoint (export.py: Core ML and its ONNX twin), zips the .mlpacka
 and tags the commit v<version>. The app compares the Hub's manifest.json with the one it has and, when the version is
 newer, downloads the zip, checks its sha256, compiles it and switches over. Uses the `hf` login on this machine.
 
-  python publish.py runs/near/near-s0/last.pt --note "near leads" [--metrics metrics.json] [--dry-run]
+  python publish.py runs/fast/fast-s0/last.pt --note "stop line only" [--metrics metrics.json] [--dry-run]
   python publish.py EXPORT_DIR --checkpoint-name runs/fast/fast-s0 --version 0 --note "..."
       (an export.py output folder as it is: StoplinePilot.mlpackage and stopline_pilot.onnx)
 """
