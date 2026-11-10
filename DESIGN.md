@@ -84,8 +84,7 @@ as above. The iOS Simulator app dials `127.0.0.1` instead of `192.168.60.1`.
 `StoplinePilot.mlpackage` (Core ML, FP16): `frame` is Y as a 512x256
 grayscale image, `uv` is U and V (1, 2, 128, 256) in float16, both as raw
 0–255 values. `line` is (1, 8, 64, 128), at stride 4, with the heat map
-already through a sigmoid. Only `line` is read: a `lead` output, where a model
-still has one, is left alone, as models to come do not have it. Decode the single
+already through a sigmoid; it is the model's one output. Decode the single
 top line peak (the maximum of its 5x5 neighbourhood) with a score of at least
 0.3. The tracker (`StopLines`) holds lines in the world frame, by the
 driving model's pose, and draws the nearest one ahead that it has seen at

@@ -98,7 +98,6 @@
       }
       let input = try MLDictionaryFeatureProvider(dictionary: ["frame": MLFeatureValue(pixelBuffer: luma), "uv": MLFeatureValue(multiArray: uv)])
       let out = try model.prediction(from: input)
-      // only `line`: a `lead` output, where a model still has one, is left alone
       guard let line = out.featureValue(for: "line")?.multiArrayValue else { throw CocoaError(.coderValueNotFound) }
       let gh = line.shape[2].intValue, gw = line.shape[3].intValue
       return (StopLineDecoder.decode(line: Self.floats(line), gh: gh, gw: gw), Float(Date().timeIntervalSince(t) * 1000))

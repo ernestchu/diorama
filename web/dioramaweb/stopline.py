@@ -8,9 +8,7 @@ The stop-line model on recorded drives, as the iPhone runs it: train/export.py's
 ONNX twin of the Core ML model (stopline_pilot.onnx, heat maps through sigmoid
 in the graph), a ResNet-18 FPN that takes the narrow camera's packed frame (Y at
 512x256, U and V at 256x128, exactly as the comma sends them) and finds the stop
-line, two end points. Only its `line` output is read: a `lead` output, where a
-model still has one, is not, as models to come do not have it. Only the narrow
-frame, in both views: one camera's lines agree from frame to frame, which is
+line, two end points: its one output, `line`. Only the narrow frame, in both views: one camera's lines agree from frame to frame, which is
 what the page's tracking needs.
 
 The page came from jetlink, where a segmentation model fed it, so this sends a
