@@ -3,7 +3,7 @@ Uses the medmodel frame's flat-road geometry (camera ~1.25 m up)."""
 import json, sys, numpy as np, cv2
 from multiprocessing import Pool
 from c1m import Segment
-from teacher import Teacher
+from vehicles import Vehicles
 
 HGT, FL, CY = 1.25, 2 * 910.0, 2 * 47.6  # at 2x
 
@@ -24,7 +24,7 @@ def queued(boxes):
 if __name__ == '__main__':
   stops = json.load(open(sys.argv[1]))
   items = [(sid, r['events'][0]['stop']) for sid, r in stops.items() if r['events']]
-  t = Teacher(); out = {}
+  t = Vehicles(); out = {}
   with Pool(24) as p:
     batch = []
     for sid, img in p.imap_unordered(stop_frame, items, chunksize=4):

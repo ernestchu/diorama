@@ -15,7 +15,7 @@ import numpy as np, cv2
 
 from c1m import Segment
 import build_c1m
-from build_c1m import split_of, choose_lead_near
+from build_c1m import split_of
 from cams import FrameCam
 from prop import Poses
 from paths import C1M, LABELS, META
@@ -79,8 +79,6 @@ if __name__ == '__main__':
 
   build_c1m.OUT = OUT
   pool = Pool(16)
-  from teacher import Teacher
-  teacher = Teacher()
   items, sheet, names, jobs = {}, [], {}, []
   with pool:
     for sid, (p, m) in plans.items():
@@ -88,28 +86,21 @@ if __name__ == '__main__':
       names.update({fid: (sid, j) for j, fid in want.items()})
       jobs.append((sid, want))
     for out in pool.imap_unordered(build_c1m.render, jobs):
-      fids = list(out)
-      boxes = teacher([cv2.cvtColor(out[f]['rgb'], cv2.COLOR_BGR2RGB) for f in fids])
-      for fid, bx in zip(fids, boxes):
+      for fid in out:
         key, j = names[fid]
         p, m = plans[key]
-        cam = FrameCam()
-        lead, _, amb = choose_lead_near(bx, np.array(out[fid]['path']), cam)
         items[fid] = {'split': split_of(key), 'sid': key, 'kind': 'passed', 'past': p[j], 'device': m['device'],
-                      'status': 'none', 'lines': [], 'lead': lead, 'ambiguous': amb, 'dist_to_stop': None,
-                      'vehicles': [[round(v / 2, 1) for v in b[:4]] + [round(b[4], 3)] for b in bx], 'dir': f'{OUT}/yuv'}
+                      'status': 'none', 'lines': [], 'dist_to_stop': None, 'dir': f'{OUT}/yuv'}
         if len(sheet) < 24 and hash(fid) % 9 == 0:
-          sheet.append((fid, out[fid]['rgb'], p[j], lead))
+          sheet.append((fid, out[fid]['rgb'], p[j]))
   json.dump(items, open(f'{C1M}/pass_items.json', 'w'))
   tiles = []
-  for fid, rgb, past, lead in sheet:
+  for fid, rgb, past in sheet:
     im = rgb.copy()
-    if lead:
-      cv2.rectangle(im, (int(2 * lead[0]), int(2 * lead[1])), (int(2 * lead[2]), int(2 * lead[3])), (0, 120, 255), 2)
     cv2.putText(im, f'{fid[:8]}{fid[-6:]} +{past} m', (8, 28), cv2.FONT_HERSHEY_SIMPLEX, 0.8, (255, 255, 255), 2)
     tiles.append(cv2.resize(im, (512, 256)))
   while len(tiles) % 4: tiles.append(np.zeros_like(tiles[0]))
   cv2.imwrite(f'{C1M}/pass_check.jpg', np.vstack([np.hstack(tiles[i:i + 4]) for i in range(0, len(tiles), 4)]),
               [cv2.IMWRITE_JPEG_QUALITY, 85])
   n = collections.Counter(v['split'] for v in items.values())
-  print(len(items), 'passed frames', dict(n), '| with a lead', sum(v['lead'] is not None for v in items.values()))
+  print(len(items), 'passed frames', dict(n))

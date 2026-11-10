@@ -11,8 +11,7 @@ for f in sorted(f for d in sys.argv[1:] for f in glob.glob(f'{d}/*-s[0-9]/log.js
   rows.setdefault(cfg, []).append([json.loads(l) for l in open(f)][-1])
 
 keys = [('line@0.3', 'P'), ('line@0.3', 'R'), ('line@0.3', 'F1'), ('line@0.5', 'F1'), ('line@0.3', 'end_err_med'),
-        ('line@0.3', 'dist_err_med_m'), ('line@0.3', 'dist_err_med_rel'), ('near', 'F1'), ('far', 'F1'),
-        ('lead@0.3', 'F1'), ('lead@0.5', 'F1'), ('lead@0.3', 'iou_mean')]
+        ('line@0.3', 'dist_err_med_m'), ('line@0.3', 'dist_err_med_rel'), ('near', 'F1'), ('far', 'F1')]
 print(f'{"metric":28s}' + ''.join(f'{c:>24s}' for c in rows))
 for k, f in keys:
   cells = []
