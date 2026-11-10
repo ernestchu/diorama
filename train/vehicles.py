@@ -1,4 +1,5 @@
-"""The lead-car teacher: D-FINE (Apache-2.0) from Hugging Face, COCO vehicles merged into one class."""
+"""A vehicle detector, D-FINE (Apache-2.0) from Hugging Face, COCO vehicles merged into one class. classify_stops.py
+uses it to tell a stop at the front of the queue from one behind another vehicle."""
 import torch
 from transformers import AutoImageProcessor, DFineForObjectDetection
 
@@ -6,7 +7,7 @@ MODEL = 'ustc-community/dfine-xlarge-obj2coco'
 VEHICLES = {'car', 'motorcycle', 'bus', 'truck', 'bicycle', 'train'}
 
 
-class Teacher:
+class Vehicles:
   def __init__(self, device='cuda', threshold=0.5):
     self.proc = AutoImageProcessor.from_pretrained(MODEL)
     self.model = DFineForObjectDetection.from_pretrained(MODEL).to(device).eval().half()

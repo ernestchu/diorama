@@ -17,8 +17,8 @@ const loupe = $('loupe'), lctx = loupe.getContext('2d');
 
 let manifest = null; // {version, frame_size, image_scale, frames: [id]}
 let session = null; // {started, labels: {id: {status, lines, t}}}
-let prefill = {}; // {id: {status, lines, why?, lead?, lanes?, orig?}}: suggested labels and what to check them against
-let overlays = true; // draw the lead box, lane boundaries and the original line
+let prefill = {}; // {id: {status, lines, why?, lanes?, orig?}}: suggested labels and what to check them against
+let overlays = true; // draw the lane boundaries and the original line
 let index = 0;
 let lines = []; // the current frame's lines, in image pixels
 let status = null; // the current frame's explicit status: 'none' | null
@@ -175,11 +175,6 @@ function drawOverlays() {
     ctx.strokeStyle = '#ff6b6b'; ctx.setLineDash([6, 5]);
     ctx.beginPath(); ctx.moveTo(ax, ay); ctx.lineTo(bx, by); ctx.stroke();
     ctx.setLineDash([]);
-  }
-  if (p.lead) {
-    const [ax, ay] = map(p.lead[0], p.lead[1]), [bx, by] = map(p.lead[2], p.lead[3]);
-    ctx.strokeStyle = '#ff9f1c'; ctx.lineWidth = 2;
-    ctx.strokeRect(ax, ay, bx - ax, by - ay);
   }
 }
 function drawLine(c, l, sel, map) {
