@@ -50,8 +50,6 @@ targets:
           UIApplicationSupportsMultipleScenes: false
         UISupportedInterfaceOrientations:
           - UIInterfaceOrientationPortrait
-          - UIInterfaceOrientationLandscapeLeft
-          - UIInterfaceOrientationLandscapeRight
         UIRequiredDeviceCapabilities: [arm64, metal]
         # the comma is on the USB cable's network (192.168.60.1); a Mac playing it is on the local network
         NSLocalNetworkUsageDescription: Diorama connects to your comma over the USB cable.

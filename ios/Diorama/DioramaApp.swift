@@ -44,29 +44,38 @@ struct RootView: View {
   @AppStorage(CommaAddress.key) private var host = CommaAddress.standard
   @AppStorage(KeepAwake.key) private var keepScreenOn = true
   @State private var feed: CommaFeed?
+  @State private var player = DioramaPlayer()
   @State private var settings = false
+  /// Width over height of the whole screen, as the drive is drawn.
+  @State private var aspect: CGFloat = 0.5
   @Environment(\.scenePhase) private var phase
   @Environment(StopLineBenchmark.self) private var benchmark
   private let models = Models.shared
 
   var body: some View {
-    NavigationStack {
-      Group {
-        // the live view stops while a benchmark runs, so the two never share the model's hardware
-        if let feed, phase != .background, !benchmark.running {
-          DioramaSceneView(feed: feed)
-        } else {
-          Color.clear
-        }
+    Group {
+      // the live view stops while a benchmark runs, so the two never share the model's hardware
+      if let feed, phase != .background, !benchmark.running {
+        DioramaSceneView(feed: feed, player: player, footageTop: 64)
+      } else {
+        Color.clear
       }
-      .ignoresSafeArea(edges: .horizontal)
-      .navigationTitle("Diorama")
-      .navigationBarTitleDisplayMode(.inline)
-      .toolbar {
-        Button("Settings", systemImage: "gearshape") { settings = true }
-      }
-      .sheet(isPresented: $settings) { SettingsView(host: $host) }
     }
+    .overlay(alignment: .topTrailing) {
+      Button("Settings", systemImage: "gearshape") { settings = true }
+        .labelStyle(.iconOnly)
+        .font(.title2)
+        .buttonStyle(.glass)
+        .buttonBorderShape(.circle)
+        .padding(14)
+    }
+    .onGeometryChange(for: CGFloat.self) { g in
+      let inset = g.safeAreaInsets
+      return (g.size.width + inset.leading + inset.trailing) / max(g.size.height + inset.top + inset.bottom, 1)
+    } action: {
+      aspect = $0
+    }
+    .sheet(isPresented: $settings) { SettingsView(host: $host, player: player, feed: feed, aspect: aspect) }
     .onAppear {
       connect()
       models.start()
@@ -143,7 +152,12 @@ final class Models {
 
 struct SettingsView: View {
   @Binding var host: String
+  let player: DioramaPlayer
+  let feed: CommaFeed?
+  let aspect: CGFloat
   @AppStorage(KeepAwake.key) private var keepScreenOn = true
+  @AppStorage(DioramaSceneView.inputKey) private var showInput = false
+  @AppStorage(DioramaSceneView.dioramaKey) private var showDiorama = true
   @State private var draft = ""
   private let models = Models.shared
   @Environment(\.dismiss) private var dismiss
@@ -168,6 +182,16 @@ struct SettingsView: View {
           Text("While a comma streams the drive and Diorama is in front. A locked iPhone stops the drive until it is unlocked.")
         }
         Section {
+          DioramaStats(player: player, feed: feed)
+          Toggle("Show footage & prediction", isOn: $showInput)
+          Toggle("Show diorama prediction", isOn: $showDiorama)
+            .disabled(!showInput)
+        } header: {
+          Text("Drive")
+        } footer: {
+          Text("The frame the models see, with the comma's prediction drawn as on its display. Diorama's own prediction, the stop line, is drawn over it too when that is on.")
+        }
+        Section {
           LabeledContent("Model", value: models.version.map { "\(StopLineModel.name) v\($0)" } ?? "not downloaded yet")
           LabeledContent("Update", value: models.status)
         } header: {
@@ -176,7 +200,7 @@ struct SettingsView: View {
           Text("Downloaded from Hugging Face (ernestchu/diorama) and checked for a newer version each time Diorama comes to the front. A new version is used from the next connection to the comma.")
         }
         Section {
-          NavigationLink("Set Up Camera…") { DioramaCameraSetup() }
+          NavigationLink("Set Up Camera…") { DioramaCameraSetup(aspect: aspect) }
           NavigationLink {
             BenchmarkScreen()
           } label: {

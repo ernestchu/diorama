@@ -55,7 +55,7 @@ vec2 map_uv(vec2 e) { vec2 w = pose.xy + vec2(pose.z * e.x - pose.w * e.y, pose.
 float paint_at(vec2 e) { return texture(map_a, map_uv(e)).g; }
 void main() {
   vec3 c = ground;
-  vec2 muv = vec2((vw.y + 30.0) / 60.0, (90.0 - vw.x) / 120.0);
+  vec2 muv = vec2((vw.y + 60.0) / 120.0, (210.0 - vw.x) / 240.0);
   vec4 m = texture(mask, muv) * ((muv.x > 0.0 && muv.x < 1.0 && muv.y > 0.0 && muv.y < 1.0) ? 1.0 : 0.0);
   // every texture read in uniform control flow (they are mipmapped), masked after
   vec2 uv = map_uv(vw.xy);
@@ -73,7 +73,7 @@ void main() {
 }`],
     mask: [`#version 300 es
 in vec2 pos;
-void main() { gl_Position = vec4(pos.y / 30.0, (30.0 - pos.x) / 60.0, 0.0, 1.0); }`, `#version 300 es
+void main() { gl_Position = vec4(pos.y / 60.0, (90.0 - pos.x) / 120.0, 0.0, 1.0); }`, `#version 300 es
 precision mediump float; out vec4 frag; void main() { frag = vec4(1.0); }`],
     decal: [`#version 300 es
 uniform mat4 mvp; in vec3 pos; in vec4 rgba; out vec3 vw; out vec4 vc;
@@ -141,34 +141,32 @@ void main() {
   // moved, in image widths. Pitch turns the whole camera, moved eye and all, about the car's middle, and zoom
   // (zoomView) scales the picture about the car by moving it, so neither moves the car on screen. The setup page
   // moves forward and rise together, so the camera slides along the road, level, at any pitch, and nothing else.
-  // The defaults are the first views (an eye and the point on the road it looks at, as [x forward, height above
-  // the road], and a zoom) moved BACK times as far from the car along the line to it, looking the same way, with
-  // BACK times the zoom: the car the same size and in the same place, but seen from further off, so the
-  // perspective stretches it less near the edge of the picture. Zoom keeps the car where the first views drew it.
+  // The default eyes are the first views (an eye and the point on the road it looks at, as [x forward, height above
+  // the road]) moved BACK times as far from the car along the line to it, looking the same way: seen from further off,
+  // so the perspective stretches the car less near the edge of the picture.
   const PIVOT_X = (EGO_FRONT + EGO_REAR) / 2, BACK = 2.2;
   const VIEWS = {
     // the picture hangs from its bottom edge: the principal point this many widths above it (the first views' 42%
     // and 50% of the height at 16:9), so a taller picture only adds what is ahead, and sky, at the top
-    road: { first: { eye: [EGO_REAR - 6.5, 3.2], at: [18, 0], zoom: 0.62 }, aboveBottom: (1 - 0.42) * 9 / 16 },
-    bird: { first: { eye: [-14, 30], at: [10, 0], zoom: 0.69 }, aboveBottom: (1 - 0.5) * 9 / 16 },
+    road: { first: { eye: [EGO_REAR - 6.5, 3.2], at: [18, 0] }, aboveBottom: (1 - 0.42) * 9 / 16 },
+    bird: { first: { eye: [-14, 30], at: [10, 0] }, aboveBottom: (1 - 0.5) * 9 / 16 },
   };
   for (const v of Object.values(VIEWS)) {
-    const { eye, at, zoom } = v.first, d = [(BACK - 1) * (eye[0] - PIVOT_X), (BACK - 1) * eye[1]];
+    const { eye, at } = v.first, d = [(BACK - 1) * (eye[0] - PIVOT_X), (BACK - 1) * eye[1]];
     v.eye = [eye[0] + d[0], eye[1] + d[1]];
     v.at = [at[0] + d[0], at[1] + d[1]];
-    v.zoom = BACK * zoom;
     v.pitch = Math.atan2(v.eye[1], PIVOT_X - v.eye[0]) * 180 / Math.PI;
     v.r = Math.hypot(PIVOT_X - v.eye[0], v.eye[1]);  // the camera's distance from the car, as pitch turns it
   }
   // no limits: any finite numbers, but a zoom above 0, a focal length
   const CAMERA_NUMBERS = ['zoom', 'pitch', 'forward', 'rise', 'shift'];
-  // each view at its first zoom, zoomed to its own about the car: the car where the first view drew it
-  const defaultCamera = () => Object.fromEntries(Object.entries(VIEWS).map(([k, v]) => {
-    const cam = { [k]: { zoom: v.first.zoom, pitch: v.pitch, forward: 0, rise: 0, shift: 0 } };
-    zoomView(cam, k, v.zoom / v.first.zoom);
-    cam[k].zoom = v.zoom;  // exactly, not by a ratio
-    return [k, cam[k]];
-  }));
+  // each view's default, as set by hand over the still scene: offsets from that view's default eye above, so they change
+  // meaning if the eyes do
+  const DEFAULT_CAMERA = {
+    road: { zoom: 2.6598371201128326, pitch: 39.12907435385786, forward: -3.4735833802432445, rise: -1.6272318717043415, shift: -0.2940157363439427 },
+    bird: { zoom: 5.654759524127969, pitch: 64.00388385536853, forward: -6.631731707020976, rise: 0.19157520745765497, shift: -1.130995818843144 },
+  };
+  const defaultCamera = () => JSON.parse(JSON.stringify(DEFAULT_CAMERA));
   // a camera file's views over the defaults, or why it is wrong
   function readCamera(file) {
     const cam = defaultCamera();
@@ -232,9 +230,9 @@ void main() {
     }
   }
   // a model line (sampled at X_IDXS) as 3D points, extended straight back behind the ego car
-  function modelLine(ys, hgt, xMax = 80, xBack = -25) {
+  function modelLine(ys, hgt, xBack = -25) {
     const pts = [[xBack, ys[0], hgt]];
-    for (let i = 0; i < IDX_N && X_IDXS[i] < xMax; i++) pts.push([X_IDXS[i], ys[i], hgt]);
+    for (let i = 0; i < IDX_N; i++) pts.push([X_IDXS[i], ys[i], hgt]);
     return pts;
   }
 
@@ -255,7 +253,7 @@ void main() {
       this.dynamic = gl.createBuffer();
       this.mapTex = null; this.mapSize = 0;
       // the model's road and lane lines, rasterised in the ego frame each frame (x -30..90 m, y -30..30 m, 0.1 m)
-      this.maskTex = this.texture(600, 1200, null, false);
+      this.maskTex = this.texture(1200, 2400, null, false);
       this.maskFbo = gl.createFramebuffer();
       gl.bindFramebuffer(gl.FRAMEBUFFER, this.maskFbo);
       gl.framebufferTexture2D(gl.FRAMEBUFFER, gl.COLOR_ATTACHMENT0, gl.TEXTURE_2D, this.maskTex, 0);
@@ -379,7 +377,7 @@ void main() {
 
       // the model's road and lane lines into the ego-frame mask
       gl.bindFramebuffer(gl.FRAMEBUFFER, this.maskFbo);
-      gl.viewport(0, 0, 600, 1200);
+      gl.viewport(0, 0, 1200, 2400);
       gl.clearColor(0, 0, 0, 0); gl.clear(gl.COLOR_BUFFER_BIT);
       gl.disable(gl.DEPTH_TEST); gl.disable(gl.BLEND);
       if (state) this.drawMask(state);
@@ -479,12 +477,12 @@ void main() {
       if (lines.length) this.drawDynamic(m, lines, [['pos', 2]]);
     }
 
-    // only the lead, from this frame's prediction, as the one car: its rear at the model's distance, facing along its lane
+    // a car for each lead: its rear at the lead, facing as the lead does
     objects(state) {
-      const l = state.lead, a = this.assets.car;
-      if (!l || !a) return [];
+      const a = this.assets.car;
+      if (!a) return [];
       const [L, W] = a.dims;
-      return [{ type: 'car', x: l.x + 0.5 * L * Math.cos(l.heading), y: l.y + 0.5 * L * Math.sin(l.heading), heading: l.heading, L, W, braking: l.braking, seg: !!l.seg }];
+      return state.leads.map((l) => ({ type: 'car', x: l.x + 0.5 * L * Math.cos(l.heading), y: l.y + 0.5 * L * Math.sin(l.heading), heading: l.heading, L, W, braking: l.braking }));
     }
 
     drawDecals(state, objs, hgt, common) {
@@ -495,14 +493,14 @@ void main() {
       for (let i = 0; i < 2; i++) {
         const pts = modelLine(X_IDXS.map((_, j) => E.lane(out.road_edges, i, j, 0)), hgt);
         const a = clamp(1 - out.road_edges_stds[i * IDX_N * 2], 0.3, 1) * 0.5;
-        ribbon(tris, pts, 0.4, th.edge, pts.map((p) => a * (1 - smoothstep(55, 85, p[0]))), true);
+        ribbon(tris, pts, 0.4, th.edge, pts.map((p) => a * (1 - smoothstep(130, 190, p[0]))), true);
       }
       // lane lines, faded by probability and distance
       for (let i = 0; i < 4; i++) {
         const p = clamp(out.lane_lines_prob[2 * i + 1], 0, 1);
         if (p < 0.15) continue;
         const pts = modelLine(X_IDXS.map((_, j) => E.lane(out.lane_lines, i, j, 0)), hgt);
-        ribbon(tris, pts, 0.065, th.paint, pts.map((q) => 0.95 * p * (1 - smoothstep(60, 90, q[0]))), false);
+        ribbon(tris, pts, 0.065, th.paint, pts.map((q) => 0.95 * p * (1 - smoothstep(130, 190, q[0]))), false);
       }
       // crosswalk stripes (held in the world, drawn in this frame)
       const pose = state.pose;
@@ -510,11 +508,12 @@ void main() {
         const c = Math.cos(pose[2]), s = Math.sin(pose[2]);
         for (const quad of state.stripes) {
           const q = quad.map(([wx, wy]) => { const dx = wx - pose[0], dy = wy - pose[1]; return [c * dx + s * dy, -s * dx + c * dy]; });
-          polygon(tris, q, hgt, th.paint, 0.9);
+          polygon(tris, q, hgt, th.paint, quad === state.stopLine ? 0.95 : 0.9);
         }
       }
-      // the planned path, cut short of the lead, and where the plan stops braking and speeds up again (planEnd)
-      const px = state.px, maxD = Math.min(state.lead ? Math.max(state.lead.x - (state.pathGap ?? 3), 0) : 80, state.planEnd ?? Infinity);
+      // the planned path, on to where the plan stops braking and speeds up again (planEnd); under the lead if it gets
+      // there, as the two are independent
+      const px = state.px, maxD = Math.min(80, state.planEnd ?? Infinity);
       const pts = [];
       for (let i = 0; i < IDX_N; i++) {
         if (px[i] >= maxD) {
@@ -578,8 +577,8 @@ void main() {
           gl.drawElements(gl.TRIANGLES, part.count, gl.UNSIGNED_SHORT, 0);
         }
       };
-      // the model's lead under the path's tint; one the segmentation alone shows, plain
-      for (const o of objs) draw(o.type, o.x, o.y, o.heading, LEAD_PAINT, th.path, o.seg ? 0 : 0.55, 0.06, o.braking ? 1 : 0);
+      // the model's leads under the path's tint
+      for (const o of objs) draw(o.type, o.x, o.y, o.heading, LEAD_PAINT, th.path, 0.55, 0.06, o.braking ? 1 : 0);
       draw('car', (EGO_FRONT + EGO_REAR) / 2, 0, 0, EGO_PAINT, null, 0, 0.35, 0);
       gl.bindVertexArray(null);
     }
@@ -599,17 +598,19 @@ void main() {
     n.zoom = z;
   }
 
-  // the camera setup's still scene of its own, whatever drives or not: the ego car, a lead 10 m ahead, the planned
-  // path stopping 2 m short of it and the ego lane's two lines, all straight, and nothing from the segmentation
-  function previewScene() {
+  // the camera setup's still scene of its own, whatever drives or not, for a view: the ego car, a lead ahead (60 m in
+  // the road view, as it is seen cruising, 10 m in the bird's-eye), the planned path and the ego lane's two lines, all
+  // straight, and nothing from the segmentation
+  function previewScene(view = 'road') {
+    const ahead = view === 'road' ? 60 : 10, lead = { x: EGO_FRONT + ahead, y: 0, heading: 0, braking: false };
     const lines = (...ys) => ys.flatMap((y) => X_IDXS.flatMap(() => [y, 0]));
     const out = {
       lane_lines: lines(-5.4, -1.8, 1.8, 5.4), lane_lines_prob: [0, 0, 0, 1, 0, 1, 0, 0],
       road_edges: lines(-5.6, 5.6), road_edges_stds: new Array(2 * IDX_N * 2).fill(0),
     };
     const state = {
-      out, px: [...X_IDXS], py: X_IDXS.map(() => 0), lead: { x: EGO_FRONT + 10, y: 0, heading: 0, braking: false, seg: false },
-      pathGap: 2, pose: null, stripes: [], view: 0, viewWhy: '', hud: { v: 0, a: 0, lead: 10 },
+      out, px: [...X_IDXS], py: X_IDXS.map(() => 0), lead, leads: [lead],
+      pose: null, stripes: [], view: 0, viewWhy: '', hud: { v: 0, a: 0, lead: ahead },
     };
     return { state, engine: { cam: null, roadmap: null } };
   }

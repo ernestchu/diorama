@@ -30,8 +30,6 @@ import Testing
       let score = line?[0] ?? got.line?.score ?? 0
       #expect(line == nil && got.line == nil || abs(score - StopLineDecoder.lineScore) < 0.03, "frame \(want["frame"]!): \(String(describing: got.line)) vs \(String(describing: line))")
     }
-    let lead = (want["lead"] as? [Double])?.map(Float.init)
-    #expect((lead == nil) == (got.lead == nil) || abs((lead?[0] ?? got.lead?.score ?? 0) - StopLineDecoder.leadScore) < 0.03)
   }
 }
 

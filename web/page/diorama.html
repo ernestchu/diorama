@@ -66,7 +66,7 @@
   .stat.note b.off { color: var(--bad); }
   .debug { display: flex; align-items: center; gap: 6px; font-size: 12px; color: var(--dim); cursor: pointer; user-select: none; }
   .debug[hidden] { display: none; }
-  .inputview { position: absolute; right: 14px; bottom: 14px; width: min(46%, 512px); border-radius: 8px; overflow: hidden;
+  .inputview { position: absolute; right: 14px; top: 14px; width: min(41%, 512px); border-radius: 8px; overflow: hidden;
     background: #000; box-shadow: 0 2px 12px rgba(0, 0, 0, 0.35); pointer-events: none; }
   .inputview[hidden] { display: none; }
   .inputview canvas { width: 100%; height: auto; aspect-ratio: 2 / 1; display: block; image-rendering: pixelated; }
@@ -139,7 +139,8 @@
   <div class="stat"><b id="segHz">–</b><span>Perception</span></div>
   <div class="stat note" id="modelsNote" hidden><b id="modelsState"></b><span>Models</span></div>
   <div class="stat note" id="cameraNote" hidden><b id="cameraState" class="off"></b><span>Camera</span></div>
-  <label class="debug" id="inputToggle" hidden title="The frame the models see: the narrow camera, warped to 512×256"><input type="checkbox" id="showInput"> Model input</label>
+  <label class="debug" id="inputToggle" hidden title="The frame the models see, with the comma's prediction drawn as on its display"><input type="checkbox" id="showInput"> Show footage &amp; prediction</label>
+  <label class="debug" id="dioramaToggle" hidden title="Diorama's own prediction over it too: the stop line"><input type="checkbox" id="showDiorama" disabled> Show diorama prediction</label>
   <div class="transport" id="transport" hidden>
     <button id="play">Play</button>
     <input type="range" id="seek" min="0" max="1" step="0.05" value="0">
@@ -208,7 +209,7 @@
     if (msg.kind === 'D') { lastData = performance.now(); frameTimes.push(lastData); }
     if (msg.kind === 'M' && msg.meta.source) $('src').textContent = msg.meta.source.route ? `${msg.meta.source.route}` : '';
     if (msg.kind === 'T') models(msg.text);
-    if ($('showInput').checked && (msg.kind === 'I' || msg.kind === 'S')) inputMessage(msg);
+    if ($('showInput').checked && (msg.kind === 'I' || msg.kind === 'S' || msg.kind === 'D' || msg.kind === 'L')) inputMessage(msg);
   }
 
   // ---- debug: the frame the models see, the packed narrow frame unpacked to 512x256 RGB (BT.601, video range),
@@ -216,7 +217,8 @@
   const SEG_TINT = { 1: [128, 64, 255], 2: [255, 214, 10], 3: [255, 255, 255], 4: [255, 140, 0], 5: [255, 92, 170] };
   const THING_TINT = { car: [56, 132, 255], truck: [0, 200, 220], bus: [0, 200, 220], person: [255, 64, 64], bicycle: [70, 210, 110], motorcycle: [70, 210, 110] };
   const images = [];  // the last few frames as RGB, for the segmentation that comes after its frame
-  let lastSeg = null, shown = -1;
+  let lastSeg = null, lastLines = null, shown = -1;
+  let drives = [], leadBars = new E.CommaLeadBars(), leadBarFrame = -1;  // the comma's outputs for those frames, and its lead bars smoothed up to the picture's
 
   function unpack(msg) {
     const { w, h, packed } = msg, W = 2 * w, H = 2 * h, plane = w * h;
@@ -233,24 +235,77 @@
   }
 
   function inputMessage(msg) {
+    if (msg.kind === 'D') {
+      if (drives.length && msg.frame <= drives[drives.length - 1].frame) { drives = []; leadBars = new E.CommaLeadBars(); leadBarFrame = -1; }  // a seek
+      drives.push({ frame: msg.frame, values: msg.values });
+      if (drives.length > 8) drives.shift();
+      return;
+    }
     if (msg.kind === 'I') {
       images.push({ frame: msg.frame, image: unpack(msg) });
       if (images.length > 6) images.shift();
+    } else if (msg.kind === 'L') {
+      if (msg.wide) return;
+      lastLines = msg;
+      // it comes after the segmentation of its frame: the picture of that frame again, with the line
+      const seen = images.find((i) => i.frame === msg.frame);
+      if (seen && seen.frame === shown && $('showDiorama').checked && lastSeg && lastSeg.frame === msg.frame) drawInput(seen, lastSeg);
+      return;
     } else lastSeg = msg;
     if (!images.length) return;
+    const newest = images[images.length - 1];
+    if (!$('showDiorama').checked) {
+      if (newest.frame !== shown) drawInput(newest, null);
+      return;
+    }
     // the frame the newest segmentation is of, which comes a little after the frame itself; the newest frame
     // bare while the models are not segmenting (preparing, paused, off)
-    const segImage = lastSeg && images.find((i) => i.frame === lastSeg.frame), newest = images[images.length - 1];
+    const segImage = lastSeg && images.find((i) => i.frame === lastSeg.frame);
     if (segImage) {
       if (segImage.frame !== shown) drawInput(segImage, lastSeg);
     } else if (!lastSeg || newest.frame - lastSeg.frame >= 8) drawInput(newest, null);
+  }
+
+  // the comma's prediction, as its display draws it
+  function commaFor(frame, meta) {
+    if (!meta || !meta.frame) return [];
+    const T = E.commaTransform(meta.frame), { w, h } = meta.frame, road = meta.height || E.COMMA.HEIGHT;
+    // the frames since the last picture, in order, each for as long as the comma's display showed it
+    for (const d of drives) {
+      if (d.frame <= leadBarFrame || d.frame > frame) continue;
+      const m = E.commaModel(E.parseDrive(d.values, meta.drive)), n = leadBarFrame < 0 ? 1 : Math.min(d.frame - leadBarFrame, 20);
+      if (m) leadBars.advance(m, T, w, h, road, n * E.COMMA.RENDERS);
+      leadBarFrame = d.frame;
+    }
+    const d = drives.find((v) => v.frame === frame), m = d && E.commaModel(E.parseDrive(d.values, meta.drive));
+    return m ? E.commaPolygons(m, T, w, h, road, leadBars.polygons) : [];
+  }
+
+  function paintComma(ctx, polygons, H) {
+    const css = (c) => `rgba(${c[0]}, ${c[1]}, ${c[2]}, ${c[3] / 255})`;
+    for (const p of polygons) {
+      ctx.beginPath();
+      p.points.forEach(([x, y], i) => (i ? ctx.lineTo(x, y) : ctx.moveTo(x, y)));
+      ctx.closePath();
+      if (p.color) ctx.fillStyle = css(p.color);
+      else {
+        // many stops, so that its blending is the comma's shader's
+        const g = ctx.createLinearGradient(0, H, 0, 0);
+        for (let i = 0; i <= 128; i++) {
+          const c = E.commaColor(i / 128, p.colors, p.stops);
+          g.addColorStop(i / 128, `rgba(${c[0] * 255}, ${c[1] * 255}, ${c[2] * 255}, ${c[3]})`);
+        }
+        ctx.fillStyle = g;
+      }
+      ctx.fill();
+    }
   }
 
   function drawInput({ frame, image }, seg) {
     const ctx = $('inputCanvas').getContext('2d'), W = image.width, H = image.height, meta = engine.meta;
     shown = frame;
     ctx.putImageData(image, 0, 0);
-    const notes = [`frame ${frame}`];
+    const notes = [`frame ${frame}`], labels = [];
     if (seg && meta && meta.seg) {
       const info = E.readSeg(seg, meta), { w, h, qmap, qThing, cls } = info, sx = W / w, sy = H / h;
       const tint = new ImageData(w, h), px = tint.data;
@@ -277,11 +332,22 @@
       ctx.font = '600 10px system-ui, sans-serif';
       for (const [q, i] of tops) {
         if (area[q] < 6) continue;
-        label(ctx, `${qThing[q]} ${(seg.score[q] / 255).toFixed(2)}`, (i % w) * sx, Math.floor(i / w) * sy, THING_TINT[qThing[q]] || THING_TINT.car, 'above');
+        labels.push([`${qThing[q]} ${(seg.score[q] / 255).toFixed(2)}`, (i % w) * sx, Math.floor(i / w) * sy, THING_TINT[qThing[q]] || THING_TINT.car]);
+      }
+      // the stop line, in the same frame's pixels
+      if (lastLines && lastLines.frame === seg.frame) {
+        ctx.strokeStyle = 'rgb(255, 214, 10)'; ctx.lineWidth = 2.5; ctx.lineCap = 'round';
+        for (const l of lastLines.lines) {
+          ctx.beginPath(); ctx.moveTo(l.x1, l.y1); ctx.lineTo(l.x2, l.y2); ctx.stroke();
+          labels.push([`stop ${l.score.toFixed(2)}`, Math.min(l.x1, l.x2), Math.min(l.y1, l.y2), [255, 214, 10]]);
+        }
       }
       notes.push(`seg ${seg.ms.toFixed(0)} ms`);
     }
-    $('inputLabel').textContent = `model input · ${W}×${H} · ${notes.join(' · ')}`;
+    paintComma(ctx, commaFor(frame, meta), H);
+    ctx.font = '600 10px system-ui, sans-serif';
+    for (const [text, x, y, rgb] of labels) label(ctx, text, x, y, rgb, 'above');
+    $('inputLabel').textContent = `footage · ${W}×${H} · ${notes.join(' · ')}`;
   }
 
   function label(ctx, text, x, y, rgb, where) {
@@ -297,13 +363,23 @@
   function inputToggle(ask) {
     let on = false;
     try { on = localStorage.getItem('diorama.input') === '1'; } catch (e) { /* storage off */ }
+    let diorama = true;
+    try { diorama = localStorage.getItem('diorama.prediction') !== '0'; } catch (e) { /* storage off */ }
     $('showInput').checked = on;
+    $('showDiorama').checked = diorama;
+    $('showDiorama').disabled = !on;
     $('inputView').hidden = !on;
     $('inputToggle').hidden = false;
+    $('dioramaToggle').hidden = false;
+    $('showDiorama').onchange = () => {
+      try { localStorage.setItem('diorama.prediction', $('showDiorama').checked ? '1' : '0'); } catch (e) { /* storage off */ }
+      shown = -1;
+    };
     $('showInput').onchange = () => {
       const now = $('showInput').checked;
       try { localStorage.setItem('diorama.input', now ? '1' : '0'); } catch (e) { /* storage off */ }
       $('inputView').hidden = !now;
+      $('showDiorama').disabled = !now;
       ask(now);
     };
     return on;
@@ -439,6 +515,7 @@
     canvas.classList.add('tuning');
     const show = (note) => {
       renderer.fixedView = view === 'road' ? 0 : 1;
+      preview = DioramaRender.previewScene(view);
       const n = renderer.views[view];
       $('camZoom').textContent = n.zoom.toFixed(2);
       $('camPitch').textContent = `${n.pitch.toFixed(1)}°`;

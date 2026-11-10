@@ -13,9 +13,9 @@ drive: 24 s on a gently curving road, scripted.
 
 The driving model's heads are what a perfect model would say of that (the plan
 is the script's own future), in the raw form a drive message carries: means
-and log stds, logits. The stop-line model's messages are the stop line's ends
-and the lead's box projected into the narrow frame (f 910, cy 47.6) from where
-they stand, every other frame, as the phone sends them. The stop line is given
+and log stds, logits. The stop-line model's messages are an empty query map and
+the stop line's ends projected into the narrow frame (f 910, cy 47.6) from where
+it stands, every other frame, as the phone sends them. The stop line is given
 as the real model gives it, not as it is: it runs on into the next lanes
 (OVERRUN), and near, the frame's edges cut it short. The page fits it back to
 the ego lane, which is what the parity tests must see the app do too.
@@ -128,16 +128,10 @@ def pixel(ahead: float, right: float, down: float) -> tuple[float, float]:
 
 
 def seg_and_lines(k: int, x: np.ndarray) -> list[bytes]:
-  """The stop-line model's two messages for frame k: the lead's box as the query map's one Car, and the stop line."""
-  t = k / FPS
+  """The stop-line model's two messages for frame k, as dioramaweb/stopline.py sends them: an empty query map (the
+  model ran, in 18 ms), and the stop line."""
   qmap = np.full((128, 256), 255, np.uint8)  # ds 2
-  d = lead_at(t)
-  if d is not None:
-    (u0, vb), (u1, vt) = pixel(d, -0.9, HEIGHT), pixel(d, 0.9, HEIGHT - 1.5)
-    r0, r1 = int(max(vt, 0) / 2), int(min(vb, 255) / 2) + 1
-    c0, c1 = int(max(u0, 0) / 2), int(min(u1, 511) / 2) + 1
-    qmap[r0:r1, c0:c1] = 0
-  seg = packets.seg(k, 18.0, qmap.astype(np.float32), np.array([0]), np.array([1.0 if d is not None else 0.0]))
+  seg = packets.seg(k, 18.0, qmap.astype(np.float32), np.zeros(0, np.uint8), np.zeros(0))
   lines = []
   rel = STOP_AT - x[k]
   if rel > 0:
@@ -156,7 +150,7 @@ def main(out: Path) -> None:
   meta = {
     'version': 1, 'fps': FPS, 'frame': {'w': 512, 'h': 256, 'f': F, 'cx': CX, 'cy': CY}, 'height': HEIGHT, 'live': False,
     'drive': [[n, c] for n, c in FIELDS],
-    'seg': {'labels': ['Car'], 'road_class': {}, 'things': {'Car': 'car'}, 'ds': 2, 'narrow_only': True},
+    'seg': {'labels': [], 'road_class': {}, 'things': {}, 'ds': 2, 'narrow_only': True},
     'source': {'route': 'synthetic'},
   }
   out.parent.mkdir(parents=True, exist_ok=True)

@@ -68,7 +68,7 @@
         let (ca, cb) = (centroid(a, page.width), centroid(b, page.width))
         let shift = ((ca.x - cb.x) * (ca.x - cb.x) + (ca.y - cb.y) * (ca.y - cb.y)).squareRoot()
         report.append("\(mask) IoU±1 \(String(format: "%.3f", iou)) shift \(String(format: "%.1f", shift)) px (\(a.count) vs \(b.count))")
-        if iou < 0.9 || (shift > 2 && !centroidless.contains(mask)) {
+        if iou < (mask == "edge red" ? 0.98 : 0.9) || (shift > 2 && !centroidless.contains(mask)) {
           Issue.record("\(name): \(mask) IoU±1 \(iou), centroids \(shift) px apart (page \(a.count) px, app \(b.count) px)")
           maskFailed = true
         }
@@ -93,8 +93,10 @@
   private let smallMask = 40
 
   /// The key colours, in the dark theme, as RGB tests. Paint white takes in the cars' specular highlights as well as the
-  /// lines, scattered pixels that move its centroid without meaning anything, so it is held to its IoU alone.
-  private let centroidless: Set<String> = ["paint white"]
+  /// lines, scattered pixels that move its centroid without meaning anything, so it is held to its IoU alone. The road
+  /// edges' red is two long soft bands far apart, whose centroid is where a threshold happens to fall along them; it is
+  /// held to a tighter IoU instead (a 2 px shift of those bands, 9 px across, would take it below 0.9).
+  private let centroidless: Set<String> = ["paint white", "edge red"]
   private let masks: [(String, @Sendable (UInt8, UInt8, UInt8) -> Bool)] = [
     ("path blue", { r, g, b in Int(b) > 150 && Int(b) - Int(r) > 80 && Int(b) - Int(g) > 30 }),
     ("paint white", { r, g, b in min(r, g, b) > 200 && Int(max(r, g, b)) - Int(min(r, g, b)) < 25 }),

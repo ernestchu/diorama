@@ -87,7 +87,9 @@ private func appSnapshots(drive: Data) -> [[String: Any]] {
       "view": s.view, "viewWhy": s.viewWhy,
       "hud": ["v": s.speed, "a": s.accel, "lead": s.leadDistance as Any],
     ]
-    snap["lead"] = s.lead.map { l in ["x": l.x, "y": l.y, "heading": l.heading, "braking": l.braking, "seg": l.seg] as [String: Any] }
+    let car = { (l: DioramaScene.Lead) in ["x": l.x, "y": l.y, "heading": l.heading, "braking": l.braking] as [String: Any] }
+    snap["lead"] = s.lead.map(car)
+    snap["leads"] = s.leads.map(car)
     snap["stopLine"] = s.stopLine.map(quad)
     snap["planEnd"] = s.planEnd
     out.append(snap)

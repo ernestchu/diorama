@@ -5,8 +5,7 @@ import Foundation
 /// and the apps draw the same drive. The driving model's outputs give the
 /// path, lanes, road edges, lead and ego motion; the segmentation gives the
 /// road surface, which a road map holds around the car. The lead is drawn
-/// from each frame's own prediction when the newest segmentation has a
-/// vehicle where it is.
+/// at the comma's own lead bar (CommaUI.LeadBars).
 ///
 /// Road frame throughout: x forward, y right, z down, origin at the camera,
 /// the road at z = height.
@@ -19,10 +18,6 @@ public enum Diorama {
   static let planWidth = 15
   static let leadMhpN = 2, leadSel = 3, leadLen = 6, leadWidth = 4
   static let occluder: UInt8 = 255
-  /// Frames: a segmentation older than this (0.5 s) confirms no lead.
-  static let segFresh = 10
-  /// A lead the segmentation alone shows (DioramaSeg.leadAhead): at most this far, metres
-  public static let segLeadMax = 15.0
   /// A plan's acceleration at or below this is braking, m/s^2 (planEnd).
   public static let planBrake = -0.3
 
@@ -43,7 +38,6 @@ public enum Diorama {
     }
     return nil
   }
-  static let segLeadHalf = 1.0, segLeadWidth = 0.5
 
   // MARK: small math
 
@@ -259,7 +253,7 @@ public struct DioramaOutputs: Sendable {
   public static func line(_ l: [Double], _ line: Int, _ i: Int, _ c: Int) -> Double { l[(line * Diorama.idxN + i) * 2 + c] }
   public func lead(_ sel: Int, _ t: Int, _ c: Int) -> Double { lead[(sel * Diorama.leadLen + t) * Diorama.leadWidth + c] }
 
-  init(values: [Float], fields: [(name: String, count: Int)]) {
+  public init(values: [Float], fields: [(name: String, count: Int)]) {
     var raw: [String: ArraySlice<Float>] = [:]
     var at = 0
     for (name, n) in fields {
@@ -440,66 +434,6 @@ public struct DioramaSeg: Sendable {
     self.qThing = qThing
   }
 
-  /// Does the segmentation have a vehicle where the model puts the lead? The rear of the lead, (x, y) on the road
-  /// at road height `road` (z down), seen from 0.2 to 1.4 m above it, within 2 query-map pixels either side; and
-  /// that vehicle stands on the road at about the lead's distance (within 25%, or 3 m), so a car further on, seen
-  /// past empty road at the lead's distance, does not count. Where it stands is the lowest of the vehicle's pixels
-  /// below the hit across a car's width (1.2 m either side: its wheels, where the road shows under its middle), each
-  /// column's run down from the hit's row: a vehicle behind it, in the same region of a semantic segmentation, is
-  /// higher and changes nothing. One whose bottom is cut off by the frame's edge counts.
-  func seesVehicle(_ cam: DioramaFrameCamera, _ x: Double, _ y: Double, _ road: Double) -> Bool {
-    var up = 0.2
-    while up <= 1.41 {
-      defer { up += 0.2 }
-      let (u, v, depth) = cam.project(x, y, road - up)
-      if depth <= 0 { continue }
-      let cu = Diorama.jsRound(u / ds), cv = Int((v / ds).rounded(.down))
-      if cv < 0 || cv >= h { continue }
-      let lo = max(cu - 2, 0), hi = min(cu + 2, w - 1)
-      if lo > hi { continue }
-      guard
-        let q = (lo...hi).lazy.map({ self.qmap[cv * self.w + $0] }).first(where: { $0 != 255 && self.qThing[Int($0)].map { $0 != "person" } == true })
-      else { continue }
-      // the vehicle's bottom across a car's width
-      let half = Int((cam.f * 1.2 / depth / ds).rounded(.up))
-      var bottom = -1, at = cu
-      for c in stride(from: max(cu - half, 0), through: min(cu + half, w - 1), by: 1) where qmap[cv * w + c] == q {
-        var r = cv
-        while r + 1 < h && qmap[(r + 1) * w + c] == q { r += 1 }
-        if r > bottom {
-          bottom = r
-          at = c
-        }
-      }
-      if bottom >= h - 1 { return true }
-      if let hit = cam.groundHit((Double(at) + 0.5) * ds, Double(bottom + 1) * ds, road), abs(hit.0 - x) <= max(3, 0.25 * x) { return true }
-    }
-    return false
-  }
-
-  /// The nearest vehicle the segmentation has in the ego car's path, where the model has no lead: the lowest row of
-  /// vehicle pixels (not a person) on the road within segLeadHalf of the path (pathY, by distance), at
-  /// least segLeadWidth wide there, between the ego car's front and segLeadMax ahead. Where it meets the road is
-  /// its distance; one cut off by the frame's bottom is at most the frame's nearest road. The rows run up from the
-  /// bottom, so a vehicle behind it, higher up, changes nothing. Its distance, or nil.
-  func leadAhead(_ cam: DioramaFrameCamera, _ pathY: (Double) -> Double, _ road: Double) -> Double? {
-    for r in stride(from: h - 1, through: 0, by: -1) {
-      var near = false, width = 0.0, sum = 0.0, n = 0
-      for c in 0..<w {
-        guard let g = cam.groundHit((Double(c) + 0.5) * ds, Double(r + 1) * ds, road), g.0 <= Diorama.segLeadMax else { continue }
-        near = true
-        if g.0 < Diorama.egoFront || abs(g.1 - pathY(g.0)) > Diorama.segLeadHalf { continue }
-        let q = qmap[r * w + c]
-        guard q != 255, let thing = qThing[Int(q)], thing != "person" else { continue }
-        width += ds * g.0 / cam.f
-        sum += g.0
-        n += 1
-      }
-      if width >= Diorama.segLeadWidth { return sum / Double(n) }
-      if !near { return nil }  // above the rows that reach the road within segLeadMax
-    }
-    return nil
-  }
 }
 
 // MARK: - the scene, frame by frame
@@ -507,13 +441,12 @@ public struct DioramaSeg: Sendable {
 /// The scene from the messages, as diorama-engine.js's Engine makes it. Not
 /// thread safe: one thread pushes, and the renderer reads under the same lock.
 public final class DioramaScene {
-  /// The lead, as this frame predicts it: the distance to its rear and its offset, facing along its lane. `seg`:
-  /// the segmentation alone shows it, the model having none there.
+  /// The lead at the comma's lead bar: `x`, `y` its rear, facing along the plan, or its lane beyond the plan.
   public struct Lead: Sendable {
-    public let x: Double, y: Double, heading: Double, braking: Bool, seg: Bool
+    public let x: Double, y: Double, heading: Double, braking: Bool
 
-    public init(x: Double, y: Double, heading: Double, braking: Bool, seg: Bool) {
-      (self.x, self.y, self.heading, self.braking, self.seg) = (x, y, heading, braking, seg)
+    public init(x: Double, y: Double, heading: Double, braking: Bool) {
+      (self.x, self.y, self.heading, self.braking) = (x, y, heading, braking)
     }
   }
 
@@ -522,7 +455,8 @@ public final class DioramaScene {
     public let frame: Int, seconds: Double
     public let out: DioramaOutputs
     public let px: [Double], py: [Double], pz: [Double]
-    public let lead: Lead?
+    /// The first lead, and every lead there is a car for.
+    public let lead: Lead?, leads: [Lead]
     /// The ego car in the world: x, y, yaw.
     public let pose: SIMD3<Double>
     /// Crosswalk bars, in the world.
@@ -537,11 +471,12 @@ public final class DioramaScene {
     public let planEnd: Double?
 
     public init(
-      frame: Int, seconds: Double, out: DioramaOutputs, px: [Double], py: [Double], pz: [Double], lead: Lead?, pose: SIMD3<Double>,
+      frame: Int, seconds: Double, out: DioramaOutputs, px: [Double], py: [Double], pz: [Double], lead: Lead?, leads: [Lead]? = nil, pose: SIMD3<Double>,
       stripes: [[SIMD2<Double>]], view: Double, viewWhy: String, speed: Double, accel: Double, leadDistance: Double?,
       stopLine: [SIMD2<Double>]? = nil, planEnd: Double? = nil
     ) {
       (self.stopLine, self.planEnd) = (stopLine, planEnd)
+      self.leads = leads ?? lead.map { [$0] } ?? []
       (self.frame, self.seconds, self.out, self.px, self.py, self.pz, self.lead) = (frame, seconds, out, px, py, pz, lead)
       (self.pose, self.stripes, self.view, self.viewWhy) = (pose, stripes, view, viewWhy)
       (self.speed, self.accel, self.leadDistance) = (speed, accel, leadDistance)
@@ -574,6 +509,8 @@ public final class DioramaScene {
   private var pendingSeg: DioramaSegMessage?
   private var pendingLines: [(Int, [DioramaStopLine])] = []
   private var stopLines = DioramaStopLines()
+  private var leadBars = CommaUI.LeadBars()
+  private var leadBraking: [Int: Bool] = [:]
   private var stripes: [[SIMD2<Double>]] = [], stripesFrame = -1
   private var speed: Double?, view: Double?
   private var chooser = DioramaViewChooser()
@@ -594,6 +531,8 @@ public final class DioramaScene {
     pendingLines = []
     stopLines = DioramaStopLines()
     lastSeg = nil
+    leadBars = CommaUI.LeadBars()
+    leadBraking = [:]
     stripes = []
     stripesFrame = -1
     speed = nil
@@ -647,6 +586,12 @@ public final class DioramaScene {
     let slopes: [Double] = (1..<n).map { i -> Double in (laneY[i] - laneY[i - 1]) / (xs[i] - xs[i - 1]) }
     let slopeXs = Array(xs[1...])
     let laneHeading: (Double) -> Double = { x in atan(Diorama.interp(x, slopeXs, slopes)) }
+    // the plan's direction at x, where the plan reaches it: the segment of it that x falls in
+    let planHeading: (Double) -> Double? = { x in
+      guard moving else { return nil }
+      for i in 1..<n where px[i - 1] <= x && x <= px[i] && px[i] - px[i - 1] > 1e-6 { return atan2(py[i] - py[i - 1], px[i] - px[i - 1]) }
+      return nil
+    }
 
     // the newest segmentation, into the road map from the pose it was seen at
     let segMsg = pendingSeg
@@ -676,24 +621,18 @@ public final class DioramaScene {
       stripesFrame = k
     }
 
-    // this frame's lead, as this frame predicts it: the distance to its rear and its offset, facing along the
-    // ego lane there (its lines reach 192 m; the plan, laid out in time, can end short of a slow car's lead and
-    // turn back at its end), braking when its predicted acceleration says so. Only where the newest segmentation,
-    // at most segFresh frames old, has a vehicle. Without one, the vehicle that segmentation has in the planned
-    // path within segLeadMax, if any (DioramaSeg.leadAhead): on the path, facing along the lane, never braking, marked seg.
-    var lead: Lead? = nil
-    let fresh = lastSeg.flatMap { k - $0.frame <= Diorama.segFresh ? $0.seg : nil }
-    if let fresh, let segCam = fresh.wide ? wideCam : cam {
-      if let p = raw.leadProb.first, p > 0.5, !raw.lead.isEmpty {
-        let x = raw.lead(0, 0, 0), y = raw.lead(0, 0, 1)
-        if fresh.seesVehicle(segCam, x, y, cam.height + zpath(x)) {
-          lead = Lead(x: x, y: y, heading: laneHeading(x), braking: raw.lead(0, 0, 3) < -0.8, seg: false)
-        }
+    // The leads: a car wherever the comma's display puts a lead bar, smoothed and faded as the display does, its rear
+    // at the bar's far edge, facing along the plan where the plan reaches it, and along the ego lane where it does not. Each braking when the model's predicted acceleration for
+    // it says so, as last known while its bar fades out. `lead`, the first of them, is what the HUD and the view go by.
+    leadBars.advance(raw, meta, renders: CommaUI.LeadBars.rendersPerFrame)
+    var lead: Lead? = nil, leads: [Lead] = []
+    for bar in leadBars.leads {
+      if bar.index < raw.leadProb.count, raw.leadProb[bar.index] > CommaUI.leadProb, !raw.lead.isEmpty {
+        leadBraking[bar.index] = raw.lead(bar.index, 0, 3) < -0.8
       }
-      let pathY: (Double) -> Double = moving ? { Diorama.interp($0, px, py) } : { _ in 0 }
-      if lead == nil, let x = fresh.leadAhead(segCam, pathY, cam.height) {
-        lead = Lead(x: x, y: pathY(x), heading: laneHeading(x), braking: false, seg: true)
-      }
+      let car = Lead(x: bar.x, y: bar.y, heading: planHeading(bar.x) ?? laneHeading(bar.x), braking: leadBraking[bar.index] ?? false)
+      leads.append(car)
+      if bar.index == 0 { lead = car }
     }
 
     // road view or bird's-eye (DioramaViewChooser), panning between the two
@@ -712,7 +651,7 @@ public final class DioramaScene {
     }
 
     state = State(
-      frame: k, seconds: seconds, out: out, px: px, py: py, pz: pz, lead: lead,
+      frame: k, seconds: seconds, out: out, px: px, py: py, pz: pz, lead: lead, leads: leads,
       pose: pose, stripes: stripes, view: Diorama.smoothstep(0, 1, view ?? 0), viewWhy: target == 1 ? chooser.why : "",
       speed: speed, accel: out.plan(0, 6), leadDistance: lead?.x, stopLine: stopLine,
       planEnd: Diorama.planEnd(px, (0..<n).map { out.plan($0, 6) }))

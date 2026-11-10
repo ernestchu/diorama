@@ -16,8 +16,10 @@
     @State private var player = DioramaPlayer()
     @Environment(\.colorScheme) private var colorScheme
     @Environment(\.dismiss) private var dismiss
+    /// Width over height of the view the drive is drawn in: the preview is that picture, scaled to fit.
+    let aspect: CGFloat
 
-    public init() {}
+    public init(aspect: CGFloat) { self.aspect = aspect }
 
     public var body: some View {
       let camera = draft ?? saved
@@ -33,8 +35,10 @@
           DioramaMetalView(player: player, dark: colorScheme == .dark, camera: camera, fixedView: Double(view), preview: true)
           DioramaCameraGestures(view: view) { change($0) }
         }
-        .clipped()
-        .frame(minHeight: 240)
+        .aspectRatio(aspect, contentMode: .fit)
+        .clipShape(.rect(cornerRadius: 12))
+        .overlay { RoundedRectangle(cornerRadius: 12).stroke(.separator) }
+        .frame(maxWidth: .infinity, maxHeight: .infinity)
         numbers(camera[view])
         HStack {
           Button("Reset View") { change { $0 = view == 0 ? DioramaCamera.defaults.road : DioramaCamera.defaults.bird } }
