@@ -1,0 +1,78 @@
+[
+ {
+  "id": "e6a5be7a6dd9a71d8548b3ecc8bc6427_0146",
+  "answer": {
+   "line": [
+    185,
+    240,
+    696,
+    245
+   ]
+  },
+  "why": "The stop line across the ego lane: its ends are where it meets the yellow centre line (left) and the white lane line (right)."
+ },
+ {
+  "id": "44c2a5d2fcdece41f2828413151fecdc_0289",
+  "answer": {
+   "line": [
+    310,
+    290,
+    844,
+    294
+   ]
+  },
+  "why": "Only the part across the ego lane, between the lane lines; the crosswalk stripes beyond are not the stop line."
+ },
+ {
+  "id": "1fd72c552c77f9639b5cf646c28a3d94_0810",
+  "answer": {
+   "line": [
+    397,
+    178,
+    666,
+    178
+   ]
+  },
+  "why": "A line in the distance, thin but clearly painted: it counts. Ends at the two lane lines."
+ },
+ {
+  "id": "7391334a3339b22fa493d916e5a0984c_0397",
+  "answer": {
+   "line": [
+    361,
+    160,
+    569,
+    158
+   ]
+  },
+  "why": "A distant line before the intersection: it counts, cut to the ego lane between its lane lines."
+ },
+ {
+  "id": "f27ad14599ede1ef46c7807b9621135d_0871",
+  "answer": {
+   "line": null
+  },
+  "why": "The stop line is a thin sliver near the horizon (middle above y = 135): too far, no line."
+ },
+ {
+  "id": "33ed9f041391fa011497ebbe2f100095_0653",
+  "answer": {
+   "line": null
+  },
+  "why": "There is a stop line, but it is too near (at the bottom of the image): no line."
+ },
+ {
+  "id": "e123b874045f6c3a3dede57742d12434_0050",
+  "answer": {
+   "line": null
+  },
+  "why": "The stop line is hidden by the vehicle in front: no line."
+ },
+ {
+  "id": "8eeac49376508e4288196b2270fc57f7_0232",
+  "answer": {
+   "line": null
+  },
+  "why": "Crosswalk stripes, but no solid stop line across the ego lane: no line."
+ }
+]

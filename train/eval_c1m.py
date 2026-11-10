@@ -5,7 +5,7 @@
 """
 import glob, json, os, sys
 import torch
-from model import Net
+from model import from_checkpoint
 from train_c1m import C1M, evaluate
 
 src, dst = sys.argv[1], sys.argv[2]
@@ -13,9 +13,7 @@ device = torch.device('cuda', 0)
 test = C1M('test', False, passed='passed' in sys.argv[3:], fast='fast' in sys.argv[3:])
 for ck in sorted(glob.glob(f'{src}/*/last.pt')):
   run = os.path.basename(os.path.dirname(ck))
-  sd = torch.load(ck, map_location='cpu')
-  model = Net(pretrained=False, color='uv.weight' in sd).to(device)
-  model.load_state_dict(sd)
+  model = from_checkpoint(ck).to(device)
   os.makedirs(f'{dst}/{run}', exist_ok=True)
   json.dump(evaluate(model, test, device), open(f'{dst}/{run}/test_preds.json', 'w'))
   print(run, flush=True)

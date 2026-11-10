@@ -7,6 +7,9 @@ av==17.1.0
 scipy==1.15.3
 safetensors==0.8.0
 transformers==5.17.0  # the vehicle detector (D-FINE) of classify_stops.py
+timm==1.0.31          # FastViT
+anthropic==2.6.0      # vlm_label.py
+onnxruntime==1.23.2   # checking the ONNX export
 pillow==12.3.0
 onnx==1.23.2
 coremltools==9.0      # export.py
