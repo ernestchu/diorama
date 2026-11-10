@@ -2,8 +2,7 @@ import Foundation
 
 /// The stop-line model's `line` map, decoded (dioramaweb/stopline.py's `decode`, for
 /// the Core ML export, whose heat map is already through a sigmoid). The map is at
-/// stride 4 of the 512x256 medmodel frame; what comes out is in its pixels. A model's
-/// `lead` output, where it still has one, is not read: models to come do not have it.
+/// stride 4 of the 512x256 medmodel frame; what comes out is in its pixels.
 public enum StopLineDecoder {
   public static let lineScore: Float = 0.3
   public static let stride: Float = 4, endScale: Float = 32
