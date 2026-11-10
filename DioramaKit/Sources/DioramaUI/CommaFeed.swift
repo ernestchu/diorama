@@ -97,7 +97,7 @@
       if let model, !busy {
         busy = true
         Task.detached(priority: .userInitiated) {
-          let msgs = (try? model.run(f.packed)).map { StopLineMessages.messages(frame: f.id, ms: $0.ms, line: $0.line, lead: $0.lead) } ?? []
+          let msgs = (try? model.run(f.packed)).map { StopLineMessages.messages(frame: f.id, ms: $0.ms, line: $0.line) } ?? []
           await self.finished(msgs)
         }
       }

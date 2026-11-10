@@ -441,7 +441,7 @@ public struct DioramaSeg: Sendable {
 /// The scene from the messages, as diorama-engine.js's Engine makes it. Not
 /// thread safe: one thread pushes, and the renderer reads under the same lock.
 public final class DioramaScene {
-  /// The lead at the comma's lead bar: `x`, `y` its rear, facing along its lane.
+  /// The lead at the comma's lead bar: `x`, `y` its rear, facing along the plan, or its lane beyond the plan.
   public struct Lead: Sendable {
     public let x: Double, y: Double, heading: Double, braking: Bool
 
@@ -586,6 +586,12 @@ public final class DioramaScene {
     let slopes: [Double] = (1..<n).map { i -> Double in (laneY[i] - laneY[i - 1]) / (xs[i] - xs[i - 1]) }
     let slopeXs = Array(xs[1...])
     let laneHeading: (Double) -> Double = { x in atan(Diorama.interp(x, slopeXs, slopes)) }
+    // the plan's direction at x, where the plan reaches it: the segment of it that x falls in
+    let planHeading: (Double) -> Double? = { x in
+      guard moving else { return nil }
+      for i in 1..<n where px[i - 1] <= x && x <= px[i] && px[i] - px[i - 1] > 1e-6 { return atan2(py[i] - py[i - 1], px[i] - px[i - 1]) }
+      return nil
+    }
 
     // the newest segmentation, into the road map from the pose it was seen at
     let segMsg = pendingSeg
@@ -616,7 +622,7 @@ public final class DioramaScene {
     }
 
     // The leads: a car wherever the comma's display puts a lead bar, smoothed and faded as the display does, its rear
-    // at the bar's far edge, facing along the ego lane there. Each braking when the model's predicted acceleration for
+    // at the bar's far edge, facing along the plan where the plan reaches it, and along the ego lane where it does not. Each braking when the model's predicted acceleration for
     // it says so, as last known while its bar fades out. `lead`, the first of them, is what the HUD and the view go by.
     leadBars.advance(raw, meta, renders: CommaUI.LeadBars.rendersPerFrame)
     var lead: Lead? = nil, leads: [Lead] = []
@@ -624,7 +630,7 @@ public final class DioramaScene {
       if bar.index < raw.leadProb.count, raw.leadProb[bar.index] > CommaUI.leadProb, !raw.lead.isEmpty {
         leadBraking[bar.index] = raw.lead(bar.index, 0, 3) < -0.8
       }
-      let car = Lead(x: bar.x, y: bar.y, heading: laneHeading(bar.x), braking: leadBraking[bar.index] ?? false)
+      let car = Lead(x: bar.x, y: bar.y, heading: planHeading(bar.x) ?? laneHeading(bar.x), braking: leadBraking[bar.index] ?? false)
       leads.append(car)
       if bar.index == 0 { lead = car }
     }

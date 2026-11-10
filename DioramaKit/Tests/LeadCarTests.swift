@@ -10,10 +10,11 @@ private let fields: [(String, Int)] = [("plan", 990), ("lane_lines", 528), ("lan
 private func offset(_ name: String) -> Int { fields.prefix { $0.0 != name }.map(\.1).reduce(0, +) }
 
 /// Raw outputs: the plan bent by `bend`, and the driving model's lead if any.
-private func values(bend: Double, lead: (x: Float, y: Float, a: Float)?, second: (x: Float, y: Float, a: Float)? = nil) -> [Float] {
+private func values(bend: Double, lead: (x: Float, y: Float, a: Float)?, second: (x: Float, y: Float, a: Float)? = nil, speed: Double? = nil) -> [Float] {
   var v = [Float](repeating: 0, count: fields.map(\.1).reduce(0, +))
   for i in 0..<33 {
-    let x = 192 * pow(Double(i) / 32, 2)
+    // along the lane lines' own distances, or as far as `speed` takes the car in the plan's 10 s
+    let x = speed.map { $0 * 10 * pow(Double(i) / 32, 2) } ?? 192 * pow(Double(i) / 32, 2)
     v[offset("plan") + i * 15] = Float(x)
     v[offset("plan") + i * 15 + 1] = Float(bend * x * x)
     v[offset("plan") + i * 15 + 3] = 15
@@ -43,13 +44,13 @@ private func meta() -> DioramaMeta {
   ])
 }
 
-/// The lead after each frame. `box`, if any, is a stop-line box in every frame.
-private func run(_ frames: [(x: Float, y: Float, a: Float)?], bend: Double = 0, box: StopLineDecoder.Box? = nil) -> [DioramaScene.Lead?] {
+/// The lead after each frame, the stop-line model seeing a line in every frame.
+private func run(_ frames: [(x: Float, y: Float, a: Float)?], bend: Double = 0, speed: Double? = nil) -> [DioramaScene.Lead?] {
   let scene = DioramaScene()
   scene.push(.meta(meta()))
   return frames.enumerated().map { i, lead in
-    if i > 0 { for message in StopLineMessages.messages(frame: UInt32(i), ms: 5, line: nil, lead: box) { scene.push(DioramaMessage(message)) } }
-    scene.push(.drive(frame: i + 1, seconds: Double(i) * 0.05, ms: 0, values: values(bend: bend, lead: lead)))
+    if i > 0 { for message in StopLineMessages.messages(frame: UInt32(i), ms: 5, line: StopLineDecoder.Line(score: 0.9, x1: 100, y1: 180, x2: 300, y2: 182)) { scene.push(DioramaMessage(message)) } }
+    scene.push(.drive(frame: i + 1, seconds: Double(i) * 0.05, ms: 0, values: values(bend: bend, lead: lead, speed: speed)))
     return scene.state?.lead
   }
 }
@@ -87,16 +88,23 @@ private func run(_ frames: [(x: Float, y: Float, a: Float)?], bend: Double = 0, 
   #expect(leads.last! == nil, "gone")
 }
 
-@Test func thePlanHasNoSayInTheCar() throws {
+@Test func thePlanHasNoSayInWhereTheCarIs() throws {
   let straight = try #require(run([(30, 1, 0), (31, 1, 0)]).last!), bent = try #require(run([(30, 1, 0), (31, 1, 0)], bend: 0.01).last!)
   #expect(straight.x == bent.x && straight.y == bent.y)
 }
 
-@Test func boxesHaveNoSayInTheCar() throws {
-  let box = StopLineDecoder.Box(score: 0.9, x1: 200, y1: 100, x2: 300, y2: 200)
-  #expect(run([nil, nil, nil], box: box).allSatisfy { $0 == nil }, "a box alone draws no car")
-  let alone = try #require(run([(30, 0, 0), (30, 0, 0)]).last!), boxed = try #require(run([(30, 0, 0), (30, 0, 0)], box: box).last!)
-  #expect(alone.x == boxed.x && alone.y == boxed.y)
+@Test func theCarFacesAlongThePlan() throws {
+  // the plan bends right as y = 0.01 x^2: at 31 m its tangent is atan(0.62); the lane lines are straight
+  let car = try #require(run([(30, 0, 0), (31, 0, 0)], bend: 0.01).last!)
+  #expect(abs(car.heading - atan(0.62)) < 0.03, "\(car.heading)")
+  let straight = try #require(run([(30, 0, 0), (31, 0, 0)]).last!)
+  #expect(abs(straight.heading) < 1e-9)
+}
+
+@Test func beyondThePlanTheCarFacesAlongTheLane() throws {
+  // the plan ends at 15 m (laid out at 1.5 m/s here); the lead is past it
+  let car = try #require(run([(60, 0, 0), (60, 0, 0)], bend: 0.01, speed: 1.5).last!)
+  #expect(abs(car.heading) < 1e-9, "\(car.heading)")
 }
 
 @Test func brakesWhenTheModelSays() throws {

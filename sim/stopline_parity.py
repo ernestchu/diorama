@@ -19,11 +19,11 @@ import onnxruntime as ort
 
 from commasim.route import Route
 
-LINE_SCORE = LEAD_SCORE = 0.3
-STRIDE, END_SCALE, WH_SCALE = 4, 32.0, 16.0
+LINE_SCORE = 0.3
+STRIDE, END_SCALE = 4, 32.0
 
 
-def decode(line, lead):
+def decode(line):
   lh = line[0]
   gh, gw = lh.shape
   pad = np.pad(lh, 2, constant_values=-1)
@@ -36,15 +36,7 @@ def decode(line, lead):
     cx, cy = x + line[1, y, x], y + line[2, y, x]
     e = line[3:7, y, x] * END_SCALE
     found = [float(peaks[i])] + [float(v * STRIDE) for v in (cx + e[0], cy + e[1], cx + e[2], cy + e[3])]
-  ch = lead[0]
-  i = int(ch.argmax())
-  box = None
-  if ch.flat[i] >= LEAD_SCORE:
-    y, x = divmod(i, gw)
-    cx, cy = x + lead[1, y, x], y + lead[2, y, x]
-    w, h = lead[3:5, y, x] * WH_SCALE
-    box = [float(ch.flat[i])] + [float(v * STRIDE) for v in (cx - w / 2, cy - h / 2, cx + w / 2, cy + h / 2)]
-  return found, box
+  return found
 
 
 def main():
@@ -58,16 +50,16 @@ def main():
     p = warped[0]
     y = np.empty((256, 512), np.float32)
     y[0::2, 0::2], y[1::2, 0::2], y[0::2, 1::2], y[1::2, 1::2] = p[:4]
-    line, lead = sess.run(None, {'frame': y[None, None], 'uv': p[4:6].astype(np.float32)[None]})
-    found, box = decode(line[0], lead[0])
-    (with_line if found else without).append((k, p, found, box))
+    (line,) = sess.run(['line'], {'frame': y[None, None], 'uv': p[4:6].astype(np.float32)[None]})
+    found = decode(line[0])
+    (with_line if found else without).append((k, p, found))
     if len(with_line) >= 8 and len(without) >= 4:
       break
   picked = with_line[:8] + without[:4]
   out = root / 'parity'
   out.mkdir(exist_ok=True)
-  np.stack([p for _, p, _, _ in picked]).tofile(out / 'frames.u8')
-  (out / 'expected.json').write_text(json.dumps([{'frame': k, 'line': f, 'lead': b} for k, _, f, b in picked], indent=1))
+  np.stack([p for _, p, _ in picked]).tofile(out / 'frames.u8')
+  (out / 'expected.json').write_text(json.dumps([{'frame': k, 'line': f} for k, _, f in picked], indent=1))
   print(f'{len(with_line[:8])} frames with a line, {len(without[:4])} without, in {out}')
 
 

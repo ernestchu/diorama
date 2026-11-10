@@ -1,26 +1,21 @@
 import Foundation
 
-/// The stop-line model's maps, decoded (diorama/stopline.py's `decode`, for the
-/// Core ML export, whose heat maps are already through a sigmoid). The maps are
-/// at stride 4 of the 512x256 medmodel frame; what comes out is in its pixels.
+/// The stop-line model's `line` map, decoded (dioramaweb/stopline.py's `decode`, for
+/// the Core ML export, whose heat map is already through a sigmoid). The map is at
+/// stride 4 of the 512x256 medmodel frame; what comes out is in its pixels. A model's
+/// `lead` output, where it still has one, is not read: models to come do not have it.
 public enum StopLineDecoder {
-  public static let lineScore: Float = 0.3, leadScore: Float = 0.3
-  public static let stride: Float = 4, endScale: Float = 32, whScale: Float = 16
+  public static let lineScore: Float = 0.3
+  public static let stride: Float = 4, endScale: Float = 32
 
   public struct Line: Equatable, Sendable {
     public var score: Float, x1: Float, y1: Float, x2: Float, y2: Float
   }
 
-  /// The lead's box: score, then its corners.
-  public struct Box: Equatable, Sendable {
-    public var score: Float, x1: Float, y1: Float, x2: Float, y2: Float
-  }
-
-  /// `line` (8, gh, gw) and `lead` (5, gh, gw), channel-major, as floats.
-  /// At most one line (the top peak, the maximum of its 5x5 neighbourhood), and the lead's box.
-  public static func decode(line: [Float], lead: [Float], gh: Int, gw: Int) -> (Line?, Box?) {
+  /// `line` (8, gh, gw), channel-major, as floats. At most one line: the top peak, the maximum of its 5x5 neighbourhood.
+  public static func decode(line: [Float], gh: Int, gw: Int) -> Line? {
     let n = gh * gw
-    precondition(line.count >= 7 * n && lead.count >= 5 * n)
+    precondition(line.count >= 7 * n)
     func at(_ m: [Float], _ c: Int, _ y: Int, _ x: Int) -> Float { m[c * n + y * gw + x] }
 
     // the top peak: the highest cell that is also the maximum of its 5x5 neighbourhood
@@ -57,28 +52,7 @@ public enum StopLineDecoder {
         score: bestScore, x1: (cx + e[0]) * stride, y1: (cy + e[1]) * stride, x2: (cx + e[2]) * stride, y2: (cy + e[3]) * stride)
     }
 
-    var arg = 0
-    for i in 1..<n where lead[i] > lead[arg] { arg = i }
-    var box: Box? = nil
-    if lead[arg] >= leadScore {
-      let y = arg / gw, x = arg % gw
-      let cx = Float(x) + at(lead, 1, y, x), cy = Float(y) + at(lead, 2, y, x)
-      let w = at(lead, 3, y, x) * whScale, h = at(lead, 4, y, x) * whScale
-      box = Box(score: lead[arg], x1: (cx - w / 2) * stride, y1: (cy - h / 2) * stride, x2: (cx + w / 2) * stride, y2: (cy + h / 2) * stride)
-      if let b = box, sideOn(b) { box = nil }
-    }
-    return (found, box)
-  }
-
-  /// The lead's box is a car crossing ahead, seen side-on, not one in the lane (diorama/stopline.py's `side_on`): from
-  /// 8 m out, wider than 1.9 times its height or than 3 m, wider than any car's rear. Its distance is its bottom's on a
-  /// flat road (f 910, horizon at 47.6, the camera 1.25 m up). A near car fills the landscape frame and its box is
-  /// wide whichever way it faces, so the test never applies under 8 m or to a box the frame's bottom cuts.
-  public static func sideOn(_ b: Box) -> Bool {
-    let horizon: Float = 47.6, f: Float = 910
-    guard b.y2 < 250 && b.y2 > horizon else { return false }
-    let d = 1.25 * f / (b.y2 - horizon), w = b.x2 - b.x1
-    return d >= 8 && (w > 1.9 * (b.y2 - b.y1) || w * d / f > 3.0)
+    return found
   }
 
   /// The packed narrow frame's four Y sub-planes as the 512x256 luma image the model takes.
@@ -101,29 +75,22 @@ public enum StopLineDecoder {
   }
 }
 
-/// The scene's messages for what the stop-line model saw in a frame: the lead box as one Car in a segmentation
-/// (`S`, at half the frame's resolution), which the scene's lead check reads, and the stop line (`L`).
+/// The scene's messages for what the stop-line model saw in a frame: an empty segmentation (`S`, at half the frame's
+/// resolution), which says the model ran on the frame and for how long, and the stop line (`L`).
 public enum StopLineMessages {
   public static let ds = 2
-  /// The segmentation meta the scene reads them with.
-  public static var segMeta: [String: Any] { ["labels": ["Car"], "road_class": [String: Int](), "things": ["Car": "car"], "ds": ds, "narrow_only": true] }
+  /// The segmentation meta the scene reads them with: no classes.
+  public static var segMeta: [String: Any] { ["labels": [String](), "road_class": [String: Int](), "things": [String: String](), "ds": ds, "narrow_only": true] }
 
-  public static func messages(frame: UInt32, ms: Float, line: StopLineDecoder.Line?, lead: StopLineDecoder.Box?) -> [Data] {
+  public static func messages(frame: UInt32, ms: Float, line: StopLineDecoder.Line?) -> [Data] {
     let w = 512 / ds, h = 256 / ds
-    var qmap = [UInt8](repeating: 255, count: w * h)
-    if let b = lead {
-      let x1 = max(Int((b.x1 / Float(ds)).rounded()), 0), x2 = min(max(Int((b.x2 / Float(ds)).rounded()), 0), w)
-      let y1 = max(Int((b.y1 / Float(ds)).rounded()), 0), y2 = min(max(Int((b.y2 / Float(ds)).rounded()), 0), h)
-      if x1 < x2 && y1 < y2 { for r in y1..<y2 { for c in x1..<x2 { qmap[r * w + c] = 0 } } }
-    }
+    let qmap = [UInt8](repeating: 255, count: w * h)
     var seg = Data([UInt8(ascii: "S")])
     seg.appendLE(frame)
     seg.appendLE(ms.bitPattern)
     seg.appendLE(UInt16(w))
     seg.appendLE(UInt16(h))
-    seg.appendLE(UInt16(1))
-    seg.append(lead == nil ? 255 : 0)  // the one query's class, Car; dropped without a lead
-    seg.append(lead == nil ? 0 : 255)  // its score
+    seg.appendLE(UInt16(0))  // no queries
     var runs = Data()
     var count: UInt32 = 0
     var i = 0

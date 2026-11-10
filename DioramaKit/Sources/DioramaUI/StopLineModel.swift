@@ -80,8 +80,8 @@
       luma = pb
     }
 
-    /// One frame: the stop line and the lead box, and the model's time in ms. Not reentrant.
-    public func run(_ packed: Data) throws -> (line: StopLineDecoder.Line?, lead: StopLineDecoder.Box?, ms: Float) {
+    /// One frame: the stop line, and the model's time in ms. Not reentrant.
+    public func run(_ packed: Data) throws -> (line: StopLineDecoder.Line?, ms: Float) {
       let t = Date()
       let y = StopLineDecoder.luma(packed)
       CVPixelBufferLockBaseAddress(luma, [])
@@ -98,12 +98,10 @@
       }
       let input = try MLDictionaryFeatureProvider(dictionary: ["frame": MLFeatureValue(pixelBuffer: luma), "uv": MLFeatureValue(multiArray: uv)])
       let out = try model.prediction(from: input)
-      guard let line = out.featureValue(for: "line")?.multiArrayValue, let lead = out.featureValue(for: "lead")?.multiArrayValue else {
-        throw CocoaError(.coderValueNotFound)
-      }
+      // only `line`: a `lead` output, where a model still has one, is left alone
+      guard let line = out.featureValue(for: "line")?.multiArrayValue else { throw CocoaError(.coderValueNotFound) }
       let gh = line.shape[2].intValue, gw = line.shape[3].intValue
-      let (l, b) = StopLineDecoder.decode(line: Self.floats(line), lead: Self.floats(lead), gh: gh, gw: gw)
-      return (l, b, Float(Date().timeIntervalSince(t) * 1000))
+      return (StopLineDecoder.decode(line: Self.floats(line), gh: gh, gw: gw), Float(Date().timeIntervalSince(t) * 1000))
     }
 
     /// A multi-array's values, in its logical order whatever its strides.

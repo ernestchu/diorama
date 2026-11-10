@@ -828,6 +828,12 @@
       const laneY = X_IDXS.map((_, i) => (lane(out.lane_lines, 1, i, 0) + lane(out.lane_lines, 2, i, 0)) / 2);
       const slopes = laneY.slice(1).map((y, i) => (y - laneY[i]) / (X_IDXS[i + 1] - X_IDXS[i]));
       const laneHeading = (x) => Math.atan(interp(x, X_IDXS.slice(1), slopes));
+      // the plan's direction at x, where the plan reaches it: the segment of it that x falls in
+      const planHeading = (x) => {
+        if (!moving) return null;
+        for (let i = 1; i < IDX_N; i++) if (px[i - 1] <= x && x <= px[i] && px[i] - px[i - 1] > 1e-6) return Math.atan2(py[i] - py[i - 1], px[i] - px[i - 1]);
+        return null;
+      };
 
       // the newest segmentation, into the road map from the pose it was seen at
       const segMsg = this.pendingSeg.length ? this.pendingSeg[this.pendingSeg.length - 1] : null;
@@ -858,7 +864,7 @@
       const stripes = stopLine ? this.stripes.concat([stopLine]) : this.stripes;
 
       // The leads: a car wherever the comma's display puts a lead bar, smoothed and faded as the display does, its rear
-      // at the bar's far edge, facing along the ego lane there. Each braking when the model's predicted acceleration
+      // at the bar's far edge, facing along the plan where the plan reaches it, and along the ego lane where it does not. Each braking when the model's predicted acceleration
       // for it says so, as last known while its bar fades out. `lead`, the first of them, is what the HUD and the view go by.
       const model = commaModel(raw);
       if (model && this.meta.frame) {
@@ -869,7 +875,7 @@
       const leads = [];
       for (const bar of this.leadBars.leads) {
         if (bar.index < raw.lead_prob.length && raw.lead_prob[bar.index] > COMMA.PROB) this.leadBraking[bar.index] = leadAt(raw.lead, bar.index, 0, 3) < -0.8;
-        const car = { x: bar.x, y: bar.y, heading: laneHeading(bar.x), braking: !!this.leadBraking[bar.index] };
+        const car = { x: bar.x, y: bar.y, heading: planHeading(bar.x) ?? laneHeading(bar.x), braking: !!this.leadBraking[bar.index] };
         leads.push(car);
         if (bar.index === 0) lead = car;
       }

@@ -226,19 +226,18 @@ private func expectClose(_ a: CommaUI.RGBA, _ b: CommaUI.RGBA, _ what: String) {
     "seg": StopLineMessages.segMeta,
   ])
   let line = StopLineDecoder.Line(score: 0.9, x1: 100, y1: 180, x2: 300, y2: 182)
-  let lead = StopLineDecoder.Box(score: 0.8, x1: 200, y1: 100, x2: 300, y2: 150)
 
   func run(_ diorama: Bool) -> InputPicture? {
     var input = ModelInput()
     input.note(.meta(meta))
     input.note(.drive(frame: 7, seconds: 0, ms: 0, values: values))
     input.note(.input(frame: 7, width: 256, height: 128, packed: [UInt8](repeating: 128, count: 6 * 256 * 128)))
-    for message in StopLineMessages.messages(frame: 7, ms: 5, line: line, lead: lead) { input.note(DioramaMessage(message)) }
+    for message in StopLineMessages.messages(frame: 7, ms: 5, line: line) { input.note(DioramaMessage(message)) }
     return input.latest(meta, diorama: diorama)
   }
   let comma = try #require(run(false)), both = try #require(run(true))
   // four lane lines, the path and the lead bar; these log-stds of zero fade the road edges out entirely
   #expect(comma.comma.count == 6 && comma.comma.count == both.comma.count)
   #expect(comma.labels.isEmpty)
-  #expect(both.labels.contains { $0.text == "car 1.00" } && both.labels.contains { $0.text == "stop 0.90" })
+  #expect(both.labels.map(\.text) == ["stop 0.90"])
 }

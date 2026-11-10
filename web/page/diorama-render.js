@@ -477,7 +477,7 @@ void main() {
       if (lines.length) this.drawDynamic(m, lines, [['pos', 2]]);
     }
 
-    // a car for each lead: its rear at the lead, facing along its lane
+    // a car for each lead: its rear at the lead, facing as the lead does
     objects(state) {
       const a = this.assets.car;
       if (!a) return [];

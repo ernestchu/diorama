@@ -189,7 +189,7 @@ struct SettingsView: View {
         } header: {
           Text("Drive")
         } footer: {
-          Text("The frame the models see, with the comma's prediction drawn as on its display. Diorama's own prediction, the lead's box and the stop line, is drawn over it too when that is on.")
+          Text("The frame the models see, with the comma's prediction drawn as on its display. Diorama's own prediction, the stop line, is drawn over it too when that is on.")
         }
         Section {
           LabeledContent("Model", value: models.version.map { "\(StopLineModel.name) v\($0)" } ?? "not downloaded yet")

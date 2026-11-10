@@ -667,7 +667,7 @@
 
     struct Object { let x, y, heading, length, width: Double, braking: Bool }
 
-    /// A car for each lead: its rear at the lead, facing along its lane.
+    /// A car for each lead: its rear at the lead, facing as the lead does.
     private func objects(_ state: DioramaScene.State) -> [Object] {
       guard let car else { return [] }
       let length = car.dims[0], width = car.dims[1]
