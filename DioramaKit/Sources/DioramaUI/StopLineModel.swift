@@ -4,7 +4,7 @@
   import DioramaLink
   import Foundation
 
-  /// The stop-line model (StoplinePilot, Core ML): the packed narrow frame in, its stop line and lead box out.
+  /// The stop-line model (StoplinePilot, Core ML): the packed narrow frame in, its stop line out.
   /// Its inputs are raw pixel values; the graph normalises them itself.
   public final class StopLineModel: @unchecked Sendable {
     public static let name = "StoplinePilot"
