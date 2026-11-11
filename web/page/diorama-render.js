@@ -163,8 +163,8 @@ void main() {
   // each view's default, as set by hand over the still scene: offsets from that view's default eye above, so they change
   // meaning if the eyes do
   const DEFAULT_CAMERA = {
-    road: { zoom: 2.6598371201128326, pitch: 39.12907435385786, forward: -3.4735833802432445, rise: -1.6272318717043415, shift: -0.2940157363439427 },
-    bird: { zoom: 5.654759524127969, pitch: 64.00388385536853, forward: -6.631731707020976, rise: 0.19157520745765497, shift: -1.130995818843144 },
+    road: { zoom: 3.9837241424131764, pitch: 27.62907435385783, forward: -16.209399183856146, rise: -3.3605003325941674, shift: -0.3046635645221496 },
+    bird: { zoom: 5.825154788208297, pitch: 80.25388385536853, forward: -9.07268296398537, rise: 0.2839249440052827, shift: -1.1572443455459596 },
   };
   const defaultCamera = () => JSON.parse(JSON.stringify(DEFAULT_CAMERA));
   // a camera file's views over the defaults, or why it is wrong
