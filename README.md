@@ -43,7 +43,8 @@ its modelV2 encoding, its link), less openpilot:
 
 Run the app in the iOS Simulator: it dials `127.0.0.1:5600`, where commasim
 listens. An iPhone dials the comma on its cable (`192.168.60.1`); set the
-Mac's address in the app's Settings to have it watch commasim instead.
+comma's Wi-Fi address (on the iPhone's hotspot, say) in the app's Settings to
+watch it without the cable, or the Mac's to watch commasim instead.
 
 ## Develop on Linux
 

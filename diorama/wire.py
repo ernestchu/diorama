@@ -22,8 +22,9 @@ PADDED = 1 << 7
 PACKET_MULTIPLE = 512
 SHOW = 1 << 3  # on INFER_REQ: the frame is shown, not inferred, and nothing is answered
 INFER_REQ = struct.Struct('<II')  # frame_id, flags
-# the comma's end of the iPhone's cable (jetlink's iOS gadget), and Diorama's port beside jetlink's 5599
-HOST, PORT = '192.168.60.1', 5600
+# every interface: the iPhone's cable (jetlink's iOS gadget, 192.168.60.1) or a Wi-Fi network both are on, such as
+# the iPhone's hotspot; and Diorama's port beside jetlink's 5599
+HOST, PORT = '0.0.0.0', 5600
 
 
 class Msg(IntEnum):

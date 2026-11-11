@@ -11,7 +11,8 @@ phone watches, and sends it with the driving model's outputs for that frame
 low priority, and does nothing but listen while no phone is there.
 
 zoompilot's manager runs it onroad while the Diorama setting is on; the phone
-reaches it over jetlink's iOS gadget (the cable's network), on port 5600.
+reaches it on port 5600 over any network the two share: jetlink's iOS gadget
+(the cable's network) or Wi-Fi, such as the iPhone's hotspot.
 """
 from __future__ import annotations
 
