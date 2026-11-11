@@ -35,8 +35,10 @@ its own process and never touches modeld:
 - It sends each model frame with its camera frame from a sender thread that
   keeps only the newest (`diorama/link.py`), at nice 10.
 
-The cable's network only exists while jetlink's setting is on iOS, so
-Diorama needs that setting too.
+dioramad listens on every interface, so it needs no jetlink setting: the
+cable's network (there only while jetlink's setting is on iOS) is one way in,
+and a Wi-Fi network both are on, such as the iPhone's hotspot, is another. On
+Wi-Fi, set the comma's address on that network in the app's Settings.
 
 ## On the wire
 
