@@ -40,9 +40,40 @@ enum KeepAwake {
   }
 }
 
+/// Light or dark: as the system has it, set, or Auto Detect, which follows the footage (FootageTone), dark for a
+/// night drive and light for a day one. Until the footage has said, Auto Detect follows the system.
+enum AppTheme: String, CaseIterable, Identifiable {
+  case system, auto, light, dark
+  static let key = "theme"
+  static let standard = AppTheme.auto
+
+  var id: Self { self }
+  var label: String {
+    switch self {
+    case .system: "System"
+    case .auto: "Auto Detect"
+    case .light: "Light"
+    case .dark: "Dark"
+    }
+  }
+
+  /// The scheme to ask for, given what the footage last said (nil: nothing yet); nil follows the system.
+  func scheme(footageDark: Bool?) -> ColorScheme? {
+    switch self {
+    case .system: nil
+    case .auto: footageDark.map { $0 ? .dark : .light }
+    case .light: .light
+    case .dark: .dark
+    }
+  }
+}
+
 struct RootView: View {
   @AppStorage(CommaAddress.key) private var host = CommaAddress.standard
   @AppStorage(KeepAwake.key) private var keepScreenOn = true
+  @AppStorage(AppTheme.key) private var theme = AppTheme.standard
+  /// What the footage last said: dark or not, nil before it has. Kept across reconnections to the comma.
+  @State private var footageDark: Bool?
   @State private var feed: CommaFeed?
   @State private var player = DioramaPlayer()
   @State private var settings = false
@@ -75,7 +106,12 @@ struct RootView: View {
     } action: {
       aspect = $0
     }
-    .sheet(isPresented: $settings) { SettingsView(host: $host, player: player, feed: feed, aspect: aspect) }
+    // the sheet too, as it keeps the scheme it was presented with
+    .sheet(isPresented: $settings) {
+      SettingsView(host: $host, player: player, feed: feed, aspect: aspect).preferredColorScheme(theme.scheme(footageDark: footageDark))
+    }
+    .preferredColorScheme(theme.scheme(footageDark: footageDark))
+    .onChange(of: feed?.footageDark) { if let d = feed?.footageDark { footageDark = d } }
     .onAppear {
       connect()
       models.start()
@@ -158,6 +194,7 @@ struct SettingsView: View {
   @AppStorage(KeepAwake.key) private var keepScreenOn = true
   @AppStorage(DioramaSceneView.inputKey) private var showInput = false
   @AppStorage(DioramaSceneView.dioramaKey) private var showDiorama = true
+  @AppStorage(AppTheme.key) private var theme = AppTheme.standard
   @State private var draft = ""
   private let models = Models.shared
   @Environment(\.dismiss) private var dismiss
@@ -175,6 +212,14 @@ struct SettingsView: View {
           Text("Comma")
         } footer: {
           Text("A Mac playing the comma (sim/commasim) is at its own address; the iOS Simulator reaches it at 127.0.0.1.")
+        }
+        Section {
+          Picker("Theme", selection: $theme) {
+            ForEach(AppTheme.allCases) { Text($0.label).tag($0) }
+          }
+        } footer: {
+          Text(
+            "Auto Detect follows the footage's sky: dark at night, light by day. It goes by the last two minutes of footage, so a wall, an underpass or the sky coming in and out of view at sunset does not flip it. Until it has ten seconds of footage, it follows the system.")
         }
         Section {
           Toggle("Keep Screen On", isOn: $keepScreenOn)
