@@ -37,7 +37,7 @@
 
     public var body: some View {
       ZStack(alignment: .topLeading) {
-        DioramaMetalView(player: player, dark: colorScheme == .dark, camera: camera, planSeconds: planSeconds, cutAtLead: true)
+        DioramaMetalView(player: player, dark: colorScheme == .dark, camera: camera, planSeconds: planSeconds, cutAtLead: true, followHeading: true)
           .ignoresSafeArea()
         if let hud = player.hud { DioramaHUD(hud: hud).padding(14) }
         if modelInput && showInput, let picture = player.input {
@@ -263,6 +263,8 @@
     var planSeconds: Double?
     /// Whether the plan stops behind the lead.
     var cutAtLead = false
+    /// Whether the camera follows the car's heading through a spring.
+    var followHeading = false
 
     func makeCoordinator() -> Coordinator { Coordinator(player: player) }
 
@@ -298,12 +300,13 @@
       }
       if let renderer = coordinator.renderer,
         renderer.camera != camera || renderer.fixedView != fixedView || renderer.planSeconds != planSeconds || renderer.cutAtLead != cutAtLead
-          || coordinator.preview != preview
+          || renderer.followHeading != followHeading || coordinator.preview != preview
       {
         renderer.camera = camera
         renderer.fixedView = fixedView
         renderer.planSeconds = planSeconds
         renderer.cutAtLead = cutAtLead
+        renderer.followHeading = followHeading
         coordinator.preview = preview
         coordinator.setNeedsDisplay()
       }

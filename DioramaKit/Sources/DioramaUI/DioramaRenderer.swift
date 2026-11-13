@@ -180,6 +180,11 @@
     var planSeconds: Double?
     /// Whether the plan stops at the first lead's rear, a metre short of it, rather than running on under it.
     var cutAtLead = false
+    /// Whether the camera follows the car's heading through a critically damped spring (HeadingSpring) rather than
+    /// turning with it rigidly: in a turn the car turns on screen a little ahead of the view, and a wobble in the pose
+    /// never shakes the whole picture.
+    var followHeading = false
+    private var heading = HeadingSpring()
     private let queue: MTLCommandQueue
     private let sky, ground, decal, mesh, maskRoad, maskPaint: MTLRenderPipelineState
     private let depthWrite, depthTestOnly, depthOff: MTLDepthStencilState
@@ -394,6 +399,16 @@
       return (f, w / 2, cy, rotation, center)
     }
 
+    /// A camera turned by `angle` (radians, the road frame's yaw) about the vertical through the ego car's middle.
+    static func turned(_ rotation: [Double], _ center: [Double], by angle: Double, _ hgt: Double) -> ([Double], [Double]) {
+      guard angle != 0 else { return (rotation, center) }
+      let c = cos(angle), s = sin(angle)
+      let dx = center[0] - pivotX, dy = center[1]
+      // the camera's rotation takes road to camera, so the turn comes in transposed
+      let rz: [Double] = [c, s, 0, -s, c, 0, 0, 0, 1]
+      return (Diorama.m3mul(rotation, rz), [pivotX + c * dx - s * dy, s * dx + c * dy, center[2]])
+    }
+
     static func rodrigues(_ r: [Double]) -> [Double] {
       let th = sqrt(r[0] * r[0] + r[1] * r[1] + r[2] * r[2])
       if th < 1e-9 { return [1, 0, 0, 0, 1, 0, 0, 0, 1] }
@@ -570,7 +585,13 @@
         enc.endEncoding()
       }
 
-      let camv = Self.camera(fixedView ?? frame.state?.view ?? 0, hgt, w, h, camera)
+      var camv = Self.camera(fixedView ?? frame.state?.view ?? 0, hgt, w, h, camera)
+      if followHeading, fixedView == nil, let state = frame.state {
+        let lag = heading.follow(state.pose.z, at: state.seconds)
+        (camv.rotation, camv.center) = Self.turned(camv.rotation, camv.center, by: lag, hgt)
+      } else {
+        heading.reset()
+      }
       let near = 0.3, far = 500.0
       let proj = [
         2 * camv.f / w, 0, 2 * camv.cx / w - 1, 0,
@@ -889,5 +910,39 @@
         return float4(apply_fog(c, in.w, f), 1.0);
       }
       """
+  }
+
+  /// The camera's heading, following the car's through a critically damped spring: no overshoot, no shake, and a lag
+  /// that grows with how fast the car turns and is held to `maxLag`. Stepped by the drive's own clock, so a redraw
+  /// without a new frame leaves it as it is.
+  struct HeadingSpring {
+    /// How stiff the spring is, rad/s: it settles in about 4 / omega seconds.
+    var omega = 3.0
+    var maxLag = 25 * Double.pi / 180
+    private var yaw: Double?, rate = 0.0, seconds = 0.0
+
+    /// The camera's heading less the car's, in radians, for the car's heading `target` at drive time `t`.
+    mutating func follow(_ target: Double, at t: Double) -> Double {
+      guard let y0 = yaw, t >= seconds, t - seconds < 0.5 else {
+        (yaw, rate, seconds) = (target, 0, t)
+        return 0
+      }
+      let dt = t - seconds
+      seconds = t
+      // the target unwrapped to within half a turn of the camera's heading
+      let goal = y0 + atan2(sin(target - y0), cos(target - y0))
+      let x = y0 - goal, e = exp(-omega * dt), k = rate + omega * x
+      var y = goal + (x + k * dt) * e
+      rate = (rate - omega * k * dt) * e
+      let lag = y - goal
+      if abs(lag) > maxLag {
+        y = goal + (lag > 0 ? maxLag : -maxLag)
+        rate = 0
+      }
+      yaw = y
+      return y - goal
+    }
+
+    mutating func reset() { yaw = nil }
   }
 #endif
