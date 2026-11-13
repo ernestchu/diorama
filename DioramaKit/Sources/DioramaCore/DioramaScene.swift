@@ -13,6 +13,8 @@ public enum Diorama {
   public static let fps = 20.0, dt = 1 / 20.0, mph = 2.23694
   public static let idxN = 33
   public static let xIdxs: [Double] = (0..<33).map { 192 * pow(Double($0) / 32, 2) }
+  /// The plan's times, s: its points are where the car is this far ahead, 0 to 10 s (comma's T_IDXS).
+  public static let tIdxs: [Double] = (0..<33).map { 10 * pow(Double($0) / 32, 2) }
   /// The ego car's bumpers, from the camera.
   public static let egoFront = 1.6, egoRear = -3.1
   static let planWidth = 15
@@ -37,6 +39,12 @@ public enum Diorama {
       }
     }
     return nil
+  }
+
+  /// How far ahead the plan has the car `seconds` from now, along x: px the plan's distances at tIdxs.
+  public static func planDistance(at seconds: Double, _ px: [Double]) -> Double {
+    guard px.count == tIdxs.count else { return .infinity }
+    return interp(seconds, tIdxs, px)
   }
 
   // MARK: small math

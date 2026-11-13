@@ -12,6 +12,9 @@
     public static let inputKey = "diorama.input"
     /// Where the switch for the stop-line model's prediction on the footage is kept.
     public static let dioramaKey = "dioramaPrediction"
+    /// Where the number of seconds of the plan to draw is kept.
+    public static let planSecondsKey = "planSeconds"
+    public static let planSecondsDefault = 2.0
 
     let feed: any DioramaFeed
     let player: DioramaPlayer
@@ -22,6 +25,7 @@
     @AppStorage(DioramaSceneView.inputKey) private var showInput = false
     @AppStorage(DioramaSceneView.dioramaKey) private var showDiorama = true
     @AppStorage(DioramaCamera.storageKey) private var camera = DioramaCamera.defaults
+    @AppStorage(DioramaSceneView.planSecondsKey) private var planSeconds = DioramaSceneView.planSecondsDefault
     @Environment(\.colorScheme) private var colorScheme
 
     public init(feed: any DioramaFeed, player: DioramaPlayer, modelInput: Bool = true, footageTop: CGFloat = 0) {
@@ -33,7 +37,7 @@
 
     public var body: some View {
       ZStack(alignment: .topLeading) {
-        DioramaMetalView(player: player, dark: colorScheme == .dark, camera: camera)
+        DioramaMetalView(player: player, dark: colorScheme == .dark, camera: camera, planSeconds: planSeconds, cutAtLead: true)
           .ignoresSafeArea()
         if let hud = player.hud { DioramaHUD(hud: hud).padding(14) }
         if modelInput && showInput, let picture = player.input {
@@ -255,6 +259,10 @@
     var fixedView: Double?
     /// The still scene the camera is set over, instead of the player's drive.
     var preview = false
+    /// How many seconds of the plan to draw, at most; nil draws all of it.
+    var planSeconds: Double?
+    /// Whether the plan stops behind the lead.
+    var cutAtLead = false
 
     func makeCoordinator() -> Coordinator { Coordinator(player: player) }
 
@@ -288,9 +296,14 @@
         coordinator.renderer?.theme = dark ? .dark : .light
         coordinator.setNeedsDisplay()
       }
-      if let renderer = coordinator.renderer, renderer.camera != camera || renderer.fixedView != fixedView || coordinator.preview != preview {
+      if let renderer = coordinator.renderer,
+        renderer.camera != camera || renderer.fixedView != fixedView || renderer.planSeconds != planSeconds || renderer.cutAtLead != cutAtLead
+          || coordinator.preview != preview
+      {
         renderer.camera = camera
         renderer.fixedView = fixedView
+        renderer.planSeconds = planSeconds
+        renderer.cutAtLead = cutAtLead
         coordinator.preview = preview
         coordinator.setNeedsDisplay()
       }

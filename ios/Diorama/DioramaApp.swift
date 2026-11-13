@@ -194,6 +194,7 @@ struct SettingsView: View {
   @AppStorage(KeepAwake.key) private var keepScreenOn = true
   @AppStorage(DioramaSceneView.inputKey) private var showInput = false
   @AppStorage(DioramaSceneView.dioramaKey) private var showDiorama = true
+  @AppStorage(DioramaSceneView.planSecondsKey) private var planSeconds = DioramaSceneView.planSecondsDefault
   @AppStorage(AppTheme.key) private var theme = AppTheme.standard
   @State private var draft = ""
   private let models = Models.shared
@@ -235,6 +236,13 @@ struct SettingsView: View {
           Text("Drive")
         } footer: {
           Text("The frame the models see, with the comma's prediction drawn as on its display. Diorama's own prediction, the stop line, is drawn over it too when that is on.")
+        }
+        Section {
+          Stepper(value: $planSeconds, in: 0.5...10, step: 0.5) {
+            LabeledContent("Planned Path", value: "\(planSeconds.formatted(.number.precision(.fractionLength(0...1)))) s")
+          }
+        } footer: {
+          Text("How far ahead the diorama draws the comma's plan: this many seconds of driving, or 80 m, whichever comes first. It also stops behind the car ahead, and where the plan, having braked, speeds up again, as at a stop sign.")
         }
         Section {
           LabeledContent("Model", value: models.version.map { "\(StopLineModel.name) v\($0)" } ?? "not downloaded yet")

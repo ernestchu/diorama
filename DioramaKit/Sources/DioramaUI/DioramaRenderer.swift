@@ -176,6 +176,10 @@
     var camera = DioramaCamera.defaults
     /// One view whatever the drive's view chooser says: 0 the road view, 1 the bird's-eye.
     var fixedView: Double?
+    /// How many seconds of the plan to draw, at most (nil: all 10 s of it); it stops at 80 m or planEnd before that.
+    var planSeconds: Double?
+    /// Whether the plan stops at the first lead's rear, a metre short of it, rather than running on under it.
+    var cutAtLead = false
     private let queue: MTLCommandQueue
     private let sky, ground, decal, mesh, maskRoad, maskPaint: MTLRenderPipelineState
     private let depthWrite, depthTestOnly, depthOff: MTLDepthStencilState
@@ -717,9 +721,12 @@
         }
         Self.polygon(&tris, q, hgt, th.paint, 0.95)
       }
-      // the planned path, on to where the plan stops braking and speeds up again (planEnd); under the lead if it gets
-      // there, as the two are independent
-      let px = state.px, maxD = min(80, state.planEnd ?? .infinity)
+      // the planned path, on to where the plan stops braking and speeds up again (planEnd), 80 m, planSeconds ahead
+      // or, with cutAtLead, a metre behind the lead, whichever comes first; otherwise under the lead if it gets there,
+      // as the two are independent
+      let px = state.px
+      let toLead = cutAtLead ? state.lead.map { $0.x - 1 } : nil
+      let maxD = min(80, state.planEnd ?? .infinity, planSeconds.map { Diorama.planDistance(at: $0, px) } ?? .infinity, toLead ?? .infinity)
       var pts: [SIMD3<Double>] = []
       for i in 0..<Diorama.idxN {
         if px[i] >= maxD {
