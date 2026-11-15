@@ -141,6 +141,8 @@
   <div class="stat note" id="cameraNote" hidden><b id="cameraState" class="off"></b><span>Camera</span></div>
   <label class="debug" id="inputToggle" hidden title="The frame the models see, with the comma's prediction drawn as on its display"><input type="checkbox" id="showInput"> Show footage &amp; prediction</label>
   <label class="debug" id="dioramaToggle" hidden title="Diorama's own prediction over it too: the stop line"><input type="checkbox" id="showDiorama" disabled> Show diorama prediction</label>
+  <label class="debug" id="zoomPick" hidden title="Auto widens the road view for turns, crossings, traffic and slow driving, and goes to bird's-eye at a stop. A number holds the road view at that zoom.">Zoom
+    <select id="zoom"><option value="auto">Auto</option><option value="0.5">0.5×</option><option value="1">1×</option><option value="2">2×</option></select></label>
   <div class="transport" id="transport" hidden>
     <button id="play">Play</button>
     <input type="range" id="seek" min="0" max="1" step="0.05" value="0">
@@ -168,9 +170,11 @@
     if (!state) return;
     $('speed').textContent = Math.round(state.hud.v * E.MPH);
     $('lead').textContent = state.hud.lead != null ? `lead ${Math.round(state.hud.lead)} m` : '';
-    const held = renderer && renderer.fixedView != null, s = held ? renderer.fixedView : state.view;
+    const fixed = renderer && typeof renderer.zoom === 'number';
+    const held = renderer && (renderer.fixedView != null || fixed), s = !held ? state.view : fixed ? 0 : renderer.fixedView;
     const why = state.viewWhy && !held ? ` · ${state.viewWhy.toUpperCase()}` : '';
-    $('mode').textContent = (s < 0.02 ? 'ROAD VIEW' : s > 0.98 ? "BIRD'S-EYE" : `PANNING ${Math.round(s * 100)}%`) + why;
+    const road = fixed ? `ROAD VIEW ${renderer.zoom}×` : state.wide > 0.5 && !held ? 'WIDE VIEW' : 'ROAD VIEW';
+    $('mode').textContent = (s < 0.02 ? road : s > 0.98 ? "BIRD'S-EYE" : `PANNING ${Math.round(s * 100)}%`) + why;
     const a = E.clamp(state.hud.a, -3.2, 3.2), bar = $('accel');
     bar.style.top = `${50 - Math.max(a, 0) / 3.2 * 50}%`;
     bar.style.bottom = `${50 + Math.min(a, 0) / 3.2 * 50}%`;
@@ -191,9 +195,16 @@
     $('segHz').textContent = sf.length > 1 ? `${(E.FPS * (sf.length - 1) / Math.max(sf[sf.length - 1] - sf[0], 1)).toFixed(1)} Hz` : '–';
   }
 
+  // seconds since the engine's frame: the source's own clock where it has one, the time since the frame came otherwise
+  let stateSeen = null, stateAt = 0;
+  function ahead() {
+    if (engine.state !== stateSeen) { stateSeen = engine.state; stateAt = performance.now(); }
+    if (!engine.state) return 0;
+    return Math.min(source.ahead ? source.ahead() : (performance.now() - stateAt) / 1000, 0.1);
+  }
   function frame() {
     if (source.tick) source.tick();
-    if (renderer) renderer.draw(...(preview ? [preview.state, preview.engine] : [engine.state, engine]));
+    if (renderer) renderer.draw(...(preview ? [preview.state, preview.engine] : [engine.state, engine, ahead()]));
     if (!preview) hud(engine.state);
     requestAnimationFrame(frame);
   }
@@ -450,6 +461,8 @@
     document.addEventListener('keydown', (e) => { if (e.code === 'Space' && e.target === document.body) { e.preventDefault(); $('play').click(); } });
     wait('');
     return {
+      // how far the clock is past the engine's frame
+      ahead() { return engine.frame === Math.min(Math.floor(now() * E.FPS), last) ? Math.max(now() - engine.frame / E.FPS, 0) : 0; },
       tick() {
         if (!video) {
           const t = performance.now();
@@ -610,6 +623,18 @@
     } catch (e) {
       $('main').innerHTML = `<div class="error">Diorama cannot draw here: ${e.message}</div>`;
       return;
+    }
+    renderer.followHeading = !setup && params.get('still') === null;  // a still frame and the setup: the rigid camera
+    if (renderer.followHeading) {
+      // and the two views as the chooser has them; a drive played or live gets the one road view that zooms
+      engine.opts.zoom = true;
+      const pick = $('zoom'), set = (v) => { renderer.zoom = v === 'auto' ? 'auto' : Number(v); };
+      let saved = 'auto';
+      try { saved = localStorage.getItem('diorama.zoom') || 'auto'; } catch (e) { /* no storage: Auto */ }
+      if ([...pick.options].some((o) => o.value === saved)) pick.value = saved;
+      set(pick.value);
+      pick.onchange = () => { set(pick.value); try { localStorage.setItem('diorama.zoom', pick.value); } catch (e) { /* not kept */ } };
+      $('zoomPick').hidden = false;
     }
     if (params.get('still') === null) await loadCamera();  // a still frame: the page's own cameras, as the app's
     if (setup) {

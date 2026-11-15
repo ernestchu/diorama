@@ -25,6 +25,10 @@
   };
 
   // the car's paint (diorama-assets.bin marks it): the lead's under its tint, and the ego car's
+  // the road view at its widest: this many times the zoom, and this many degrees higher
+  const WIDE = { zoom: 0.62, pitch: 10 };
+  // how far either side of a road edge the road's surface fades out, m
+  const ROAD_FEATHER = 0.7;
   const LEAD_PAINT = [0.62, 0.62, 0.64], EGO_PAINT = [0.66, 0.66, 0.68];
 
   const COMMON = `
@@ -38,8 +42,9 @@ vec3 apply_fog(vec3 c, vec3 w) {
 in vec2 pos; out float vy;
 void main() { vy = pos.y; gl_Position = vec4(pos, 0.9999, 1.0); }`, `#version 300 es
 precision highp float;
-uniform vec3 sky_top; uniform vec3 horizon; in float vy; out vec4 frag;
-void main() { frag = vec4(mix(horizon, sky_top, clamp(vy * 0.5 + 0.5, 0.0, 1.0)), 1.0); }`],
+uniform vec3 sky_top; uniform vec3 horizon; uniform vec2 rise; in float vy; out vec4 frag;
+// the horizon's colour at the horizon itself (rise.x, where the fogged ground ends), up to sky_top over rise.y
+void main() { frag = vec4(mix(horizon, sky_top, smoothstep(0.0, 1.0, (vy - rise.x) / rise.y)), 1.0); }`],
     ground: [`#version 300 es
 uniform mat4 mvp; in vec3 pos; out vec3 vw;
 void main() { vw = pos; gl_Position = mvp * vec4(pos, 1.0); }`, `#version 300 es
@@ -66,15 +71,19 @@ void main() {
   float blob = step(0.5, a.g) * step(0.5, min(min(paint_at(vw.xy + vec2(0.45, 0.0)), paint_at(vw.xy - vec2(0.45, 0.0))),
                                               min(paint_at(vw.xy + vec2(0.0, 0.45)), paint_at(vw.xy - vec2(0.0, 0.45)))));
   c += (sidewalk - ground) * smoothstep(0.35, 0.6, b.r) * seen;
-  c = mix(c, road, smoothstep(0.4, 0.6, max(min(a.r + a.g + a.b, 1.0), m.r)));
+  // the road: the model's, feathered in the mask, and the map's, read two mip levels down so its 0.1 m cells blur
+  // into a soft edge as well
+  vec4 ar = texture(map_a, uv, 2.0) * inside;
+  float mapped = smoothstep(0.25, 0.75, min(ar.r + ar.g + ar.b, 1.0));
+  c = mix(c, road, max(mapped, smoothstep(0.0, 1.0, m.r)));
   c = mix(c, curb, smoothstep(0.3, 0.55, a.a) * seen);
   c = mix(c, paint, smoothstep(0.4, 0.6, a.g) * (1.0 - max(m.g, blob)) * seen);
   frag = vec4(apply_fog(c, vw), 1.0);
 }`],
     mask: [`#version 300 es
-in vec2 pos;
-void main() { gl_Position = vec4(pos.y / 60.0, (90.0 - pos.x) / 120.0, 0.0, 1.0); }`, `#version 300 es
-precision mediump float; out vec4 frag; void main() { frag = vec4(1.0); }`],
+in vec2 pos; in float val; out float v;
+void main() { v = val; gl_Position = vec4(pos.y / 60.0, (90.0 - pos.x) / 120.0, 0.0, 1.0); }`, `#version 300 es
+precision mediump float; in float v; out vec4 frag; void main() { frag = vec4(v); }`],
     decal: [`#version 300 es
 uniform mat4 mvp; in vec3 pos; in vec4 rgba; out vec3 vw; out vec4 vc;
 void main() { vw = pos; vc = rgba; gl_Position = mvp * vec4(pos, 1.0); }`, `#version 300 es
@@ -236,6 +245,26 @@ void main() {
     return pts;
   }
 
+  // The camera's heading, following the car's through a critically damped spring: no overshoot, no shake, and a lag
+  // that grows with how fast the car turns and is held to maxLag. As the app's HeadingSpring.
+  class HeadingSpring {
+    constructor(omega = 3, maxLag = 25 * Math.PI / 180) { this.omega = omega; this.maxLag = maxLag; this.yaw = null; this.rate = 0; this.seconds = 0; }
+    // the camera's heading less the car's, for the car's heading `target` at time t (s)
+    follow(target, t) {
+      if (this.yaw === null || t < this.seconds || t - this.seconds >= 0.5) { this.yaw = target; this.rate = 0; this.seconds = t; return 0; }
+      const dt = t - this.seconds, w = this.omega;
+      this.seconds = t;
+      const goal = this.yaw + Math.atan2(Math.sin(target - this.yaw), Math.cos(target - this.yaw));
+      const x = this.yaw - goal, e = Math.exp(-w * dt), k = this.rate + w * x;
+      let y = goal + (x + k * dt) * e;
+      this.rate = (this.rate - w * k * dt) * e;
+      if (Math.abs(y - goal) > this.maxLag) { y = goal + Math.sign(y - goal) * this.maxLag; this.rate = 0; }
+      this.yaw = y;
+      return y - goal;
+    }
+    reset() { this.yaw = null; }
+  }
+
   // ---------------------------------------------------------------- the renderer
   class Renderer {
     constructor(canvas, assets, theme = 'dark') {
@@ -245,6 +274,9 @@ void main() {
       this.t = THEMES[theme] || THEMES.dark;
       this.views = defaultCamera();  // each view's zoom, pitch and forward
       this.fixedView = null;  // 0 or 1 holds the road or the bird's-eye view, whatever the engine asks
+      this.zoom = 'auto';  // or a number: the road view held at that many times its zoom, whatever the engine asks
+      this.followHeading = false;  // the camera follows the car's heading through a spring, not rigidly
+      this.heading = new HeadingSpring();
       this.prog = {};
       for (const [name, [vs, fs]] of Object.entries(SHADERS)) this.prog[name] = this.program(vs, fs);
       this.aniso = gl.getExtension('EXT_texture_filter_anisotropic');
@@ -347,8 +379,16 @@ void main() {
     }
 
     // the virtual camera for a view between the chase camera (0) and the bird's-eye view (1)
-    camera(s, hgt, w, h) {
-      const n = this.views, { C: Cc, M: Mc } = placed(VIEWS.road, n.road, hgt), { C: Cb, M: Mb } = placed(VIEWS.bird, n.bird, hgt);
+    // `wide` (0 to 1) widens the road view: zoomed out about the car, and seen from a little higher
+    camera(s, hgt, w, h, wide = 0) {
+      let n = this.views;
+      const ratio = typeof this.zoom === 'number' ? this.zoom : WIDE.zoom ** wide;
+      if (ratio !== 1 || wide > 0) {
+        n = { road: { ...n.road }, bird: n.bird };
+        zoomView(n, 'road', ratio);
+        if (typeof this.zoom !== 'number') n.road.pitch += WIDE.pitch * wide;
+      }
+      const { C: Cc, M: Mc } = placed(VIEWS.road, n.road, hgt), { C: Cb, M: Mb } = placed(VIEWS.bird, n.bird, hgt);
       const rel = logRot(E.m3mul(Mb, transpose3(Mc)));
       const M = E.m3mul(rodrigues(rel.map((v) => v * s)), Mc);
       const C = [Cc[0] + (Cb[0] - Cc[0]) * s, Cc[1] + (Cb[1] - Cc[1]) * s, Cc[2] + (Cb[2] - Cc[2]) * s ** 0.7];  // rise a bit faster than it moves back
@@ -367,7 +407,10 @@ void main() {
       return { f, cx: w / 2, cy, M, C };
     }
 
-    draw(state, engine) {
+    // `ahead`: seconds since the state's frame. The car, the camera, the path and the leads are carried on by the
+    // car's own motion for that long, over a world that stays where the frame put it, so the picture moves at the
+    // screen's rate and not in the frames' 50 ms steps.
+    draw(state, engine, ahead = 0) {
       const gl = this.gl, th = this.t, canvas = this.canvas;
       const dpr = root.devicePixelRatio || 1;
       const w = Math.round(canvas.clientWidth * dpr) || canvas.width, h = Math.round(canvas.clientHeight * dpr) || canvas.height;
@@ -385,7 +428,24 @@ void main() {
       gl.colorMask(true, true, true, true);
 
       gl.viewport(0, 0, w, h);
-      const camv = this.camera(this.fixedView ?? (state ? state.view : 0), hgt, w, h);
+      const held = typeof this.zoom === 'number';  // a zoom set by hand holds the road view
+      const camv = this.camera(this.fixedView ?? (state && !held ? state.view : 0), hgt, w, h, state && !held && this.fixedView == null ? state.wide || 0 : 0);
+      const mo = state && state.motion && ahead > 0 ? state.motion : [0, 0, 0];
+      const on = { x: mo[0] * ahead, y: mo[1] * ahead, yaw: mo[2] * ahead };
+      on.c = Math.cos(on.yaw); on.s = Math.sin(on.yaw);
+      on.at = (x, y) => [on.x + on.c * x - on.s * y, on.y + on.s * x + on.c * y];
+      this.on = on;
+      let lag = 0;
+      if (this.followHeading && this.fixedView == null && state && state.pose) lag = this.heading.follow(state.pose[2] + on.yaw, state.seconds + ahead);
+      else this.heading.reset();
+      if (lag !== 0 || ahead > 0) {
+        // the camera turned by its lag about the car's middle, then carried on with the car
+        const c = Math.cos(lag), s = Math.sin(lag), dx = camv.C[0] - PIVOT_X, dy = camv.C[1];
+        const [cx, cy] = on.at(PIVOT_X + c * dx - s * dy, s * dx + c * dy);
+        const a = lag + on.yaw, ca = Math.cos(a), sa = Math.sin(a);
+        camv.C = [cx, cy, camv.C[2]];
+        camv.M = E.m3mul(camv.M, [ca, sa, 0, -sa, ca, 0, 0, 0, 1]);
+      }
       const near = 0.3, far = 500;
       const proj = [2 * camv.f / w, 0, 2 * camv.cx / w - 1, 0, 0, -2 * camv.f / h, 1 - 2 * camv.cy / h, 0, 0, 0, (far + near) / (far - near), -2 * far * near / (far - near), 0, 0, 1, 0];
       const R = E.m3mul(E.VIEW_FROM_DEVICE, camv.M), C = camv.C;
@@ -402,6 +462,9 @@ void main() {
       const sky = this.prog.sky;
       gl.useProgram(sky.p);
       gl.uniform3fv(sky.u.sky_top, th.sky_top); gl.uniform3fv(sky.u.horizon, th.horizon);
+      // where the level ground's horizon is on the screen (clip y): the road's direction, infinitely far
+      const hw = this.vp[12], hy = hw > 1e-6 ? this.vp[4] / hw : 2;
+      gl.uniform2f(sky.u.rise, hy, Math.max(1 - hy, 0.25) * 1.5);
       gl.bindVertexArray(null);
       gl.bindBuffer(gl.ARRAY_BUFFER, this.skyBuf);
       gl.enableVertexAttribArray(sky.a('pos'));
@@ -457,13 +520,19 @@ void main() {
       gl.useProgram(m.p);
       const edge = (i) => X_IDXS.map((_, j) => E.lane(out.road_edges, i, j, 0));
       const left = modelLine(edge(0), 0), right = modelLine(edge(1), 0);
+      // the road between the edges, feathered ROAD_FEATHER m either side of each: 0 outside, 1 inside, half at the
+      // edge itself. A hard edge at the mask's 0.1 m would stair-step wherever it runs at a slight angle to the grid.
       const tris = [];
-      for (let i = 0; i + 1 < left.length; i++) {
-        const a = left[i], b = left[i + 1], c = right[i], d = right[i + 1];
-        tris.push(a[0], a[1], b[0], b[1], c[0], c[1], b[0], b[1], d[0], d[1], c[0], c[1]);
+      const rings = left.map((l, i) => {
+        const r = right[i], f = Math.min(ROAD_FEATHER, Math.max((r[1] - l[1]) / 2, 0));
+        return [[l[0], l[1] - f, 0], [l[0], l[1] + f, 1], [r[0], r[1] - f, 1], [r[0], r[1] + f, 0]];
+      });
+      for (let i = 0; i + 1 < rings.length; i++) for (let k = 0; k < 3; k++) {
+        const a = rings[i][k], b = rings[i + 1][k], c = rings[i][k + 1], d = rings[i + 1][k + 1];
+        tris.push(...a, ...b, ...c, ...b, ...d, ...c);
       }
       gl.colorMask(true, false, false, false);
-      this.drawDynamic(m, tris, [['pos', 2]]);
+      this.drawDynamic(m, tris, [['pos', 2], ['val', 1]]);
       // paint next to a model lane line is drawn by that line
       const lines = [];
       for (let i = 0; i < 4; i++) {
@@ -471,10 +540,10 @@ void main() {
         const pts = modelLine(X_IDXS.map((_, j) => E.lane(out.lane_lines, i, j, 0)), 0);
         const rib = [];
         ribbon(rib, pts, 0.6, [0, 0, 0], pts.map(() => 1), false, 0);
-        for (let v = 0; v < rib.length; v += 7) lines.push(rib[v], rib[v + 1]);
+        for (let v = 0; v < rib.length; v += 7) lines.push(rib[v], rib[v + 1], 1);
       }
       gl.colorMask(false, true, false, false);
-      if (lines.length) this.drawDynamic(m, lines, [['pos', 2]]);
+      if (lines.length) this.drawDynamic(m, lines, [['pos', 2], ['val', 1]]);
     }
 
     // a car for each lead: its rear at the lead, facing as the lead does
@@ -486,14 +555,17 @@ void main() {
     }
 
     drawDecals(state, objs, hgt, common) {
-      const gl = this.gl, th = this.t, out = state.out, tris = [];
-      for (const o of objs) blobShadow(tris, o.x, o.y, o.heading, o.L, o.W, hgt);
-      blobShadow(tris, (EGO_FRONT + EGO_REAR) / 2, 0, 0, EGO_FRONT - EGO_REAR, 1.85, hgt);
+      const gl = this.gl, th = this.t, out = state.out, tris = [], own = [];
+      // `own`: what goes with the car between frames (its shadow, the leads', the path), carried on below
+      for (const o of objs) blobShadow(own, o.x, o.y, o.heading, o.L, o.W, hgt);
+      blobShadow(own, (EGO_FRONT + EGO_REAR) / 2, 0, 0, EGO_FRONT - EGO_REAR, 1.85, hgt);
       // road edges: a soft red glow
       for (let i = 0; i < 2; i++) {
         const pts = modelLine(X_IDXS.map((_, j) => E.lane(out.road_edges, i, j, 0)), hgt);
         const a = clamp(1 - out.road_edges_stds[i * IDX_N * 2], 0.3, 1) * 0.5;
-        ribbon(tris, pts, 0.4, th.edge, pts.map((p) => a * (1 - smoothstep(130, 190, p[0]))), true);
+        const fade = pts.map((p) => 1 - smoothstep(110, 180, p[0]));
+        ribbon(tris, pts, 0.75, th.edge, fade.map((f) => 0.28 * a * f), true);  // the glow
+        ribbon(tris, pts, 0.11, th.edge, fade.map((f) => 1.7 * a * f), true);   // the line
       }
       // lane lines, faded by probability and distance
       for (let i = 0; i < 4; i++) {
@@ -531,17 +603,25 @@ void main() {
         for (let i = 1; i < pts.length; i++) arc.push(arc[i - 1] + Math.hypot(pts[i][0] - pts[i - 1][0], pts[i][1] - pts[i - 1][1]));
         const total = arc[arc.length - 1];
         if (total >= 1) {
-          const res = [];
+          const res = [], left = [];
           const at = [];
           for (let si = 0; si < total; si += 0.5) at.push(si);
           at.push(total);
           for (const si of at) {
             const p = [0, 1, 2].map((j) => E.interp(si, arc, pts.map((q) => q[j])));
-            if (p[0] > EGO_FRONT - 0.5) res.push(p);
+            if (p[0] > EGO_FRONT - 0.5) { res.push(p); left.push(total - si); }
           }
-          if (res.length >= 2) ribbon(tris, res, 0.85, th.path, res.map((p) => 0.8 * (1 - smoothstep(12, 70, p[0]))), true, 0.03);
+          // fading with distance, and out over its last metres, so wherever it is cut it has no square end
+          const tail = Math.min(5, 0.5 * total);
+          if (res.length >= 2) ribbon(own, res, 0.85, th.path, res.map((p, i) => 0.8 * (1 - smoothstep(12, 70, p[0])) * smoothstep(0, tail, left[i])), true, 0.03);
         }
       }
+      const on = this.on;
+      for (let i = 0; i < own.length; i += 7) [own[i], own[i + 1]] = on.at(own[i], own[i + 1]);
+      // shadows under everything else on the road, the path over it
+      const shadows = 30 * 7 * (objs.length + 1);
+      tris.unshift(...own.slice(0, shadows));
+      tris.push(...own.slice(shadows));
       if (!tris.length) return;
       const d = this.prog.decal;
       gl.useProgram(d.p);
@@ -559,8 +639,10 @@ void main() {
       gl.uniform3fv(mp.u.light_dir, this.lightDir);
       gl.uniform3fv(mp.u.amb_sky, th.amb_sky); gl.uniform3fv(mp.u.amb_ground, th.amb_ground);
       gl.uniform3fv(mp.u.key, th.key); gl.uniform3fv(mp.u.rim_col, th.rim);
-      const draw = (name, x, y, heading, paint, tint, tintAmt, spec, brake) => {
+      const on = this.on;
+      const draw = (name, x0, y0, heading0, paint, tint, tintAmt, spec, brake) => {
         const a = this.assets[name];
+        const [x, y] = on.at(x0, y0), heading = heading0 + on.yaw;
         const c = Math.cos(heading), s = Math.sin(heading);
         // local (x forward, y right, z up) -> road (z down)
         const model = [c, -s, 0, x, s, c, 0, y, 0, 0, -1, hgt, 0, 0, 0, 1];

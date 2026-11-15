@@ -185,6 +185,12 @@
     /// never shakes the whole picture.
     var followHeading = false
     private var heading = HeadingSpring()
+    /// The road view held at this many times its zoom, whatever the scene asks: no widening, and no bird's-eye.
+    var zoom: Double?
+    /// The road view at its widest: this many times the zoom, and this many degrees higher.
+    static let wide = (zoom: 0.62, pitch: 10.0)
+    /// How far either side of a road edge the road's surface fades out, m.
+    static let roadFeather = 0.7
     private let queue: MTLCommandQueue
     private let sky, ground, decal, mesh, maskRoad, maskPaint: MTLRenderPipelineState
     private let depthWrite, depthTestOnly, depthOff: MTLDepthStencilState
@@ -372,9 +378,19 @@
     /// less height only shows more or less of what lies ahead at the top.
     static let aboveBottom = (road: (1 - 0.42) * 9 / 16, bird: (1 - 0.5) * 9 / 16)
 
-    static func camera(_ s: Double, _ hgt: Double, _ w: Double, _ h: Double, _ setup: DioramaCamera = .defaults) -> (
+    /// `wide` (0 to 1) widens the road view: zoomed out about the car, and seen from a little higher. `zoom` holds
+    /// it at that many times its zoom.
+    static func camera(
+      _ s: Double, _ hgt: Double, _ w: Double, _ h: Double, _ given: DioramaCamera = .defaults, wide: Double = 0, zoom: Double? = nil
+    ) -> (
       f: Double, cx: Double, cy: Double, rotation: [Double], center: [Double]
     ) {
+      var setup = given
+      let ratio = zoom ?? pow(Self.wide.zoom, wide)
+      if ratio != 1 || wide > 0 {
+        DioramaCamera.zoom(&setup.road, to: setup.road.zoom * ratio, view: 0)
+        if zoom == nil { setup.road.pitch += Self.wide.pitch * wide }
+      }
       let chase = place(roadEye(hgt), setup.road, hgt), bird = place(birdEye(hgt), setup.bird, hgt)
       let rel = logRot(Diorama.m3mul(bird.rotation, transpose3(chase.rotation)))
       let rotation = Diorama.m3mul(rodrigues(rel.map { $0 * s }), chase.rotation)
@@ -563,7 +579,10 @@
       var params: SIMD4<Float>  // tint amount, specular, brake, span
     }
 
-    func draw(_ frame: Frame, to pass: MTLRenderPassDescriptor, size: CGSize, then present: (MTLCommandBuffer) -> Void) {
+    /// `ahead`: seconds since the state's frame. The car, the camera, the path and the leads are carried on by the
+    /// car's own motion for that long, over a world that stays where the frame put it, so the picture moves at the
+    /// screen's rate and not in the frames' 50 ms steps.
+    func draw(_ frame: Frame, to pass: MTLRenderPassDescriptor, size: CGSize, ahead: Double = 0, then present: (MTLCommandBuffer) -> Void) {
       guard let commands = queue.makeCommandBuffer() else { return }
       let th = theme, hgt = frame.height
       let w = Double(size.width), h = Double(size.height)
@@ -585,12 +604,24 @@
         enc.endEncoding()
       }
 
-      var camv = Self.camera(fixedView ?? frame.state?.view ?? 0, hgt, w, h, camera)
-      if followHeading, fixedView == nil, let state = frame.state {
-        let lag = heading.follow(state.pose.z, at: state.seconds)
-        (camv.rotation, camv.center) = Self.turned(camv.rotation, camv.center, by: lag, hgt)
+      let live = fixedView == nil ? frame.state : nil
+      // a zoom set by hand holds the road view
+      var camv = Self.camera(
+        fixedView ?? (zoom == nil ? frame.state?.view : nil) ?? 0, hgt, w, h, camera, wide: zoom == nil ? live?.wide ?? 0 : 0,
+        zoom: fixedView == nil ? zoom : nil)
+      let on = Carry(frame.state?.motion ?? .zero, max(ahead, 0))
+      var lag = 0.0
+      if followHeading, let state = live {
+        lag = heading.follow(state.pose.z + on.yaw, at: state.seconds + max(ahead, 0))
       } else {
         heading.reset()
+      }
+      // the camera turned by its lag about the car's middle, then carried on with the car
+      (camv.rotation, camv.center) = Self.turned(camv.rotation, camv.center, by: lag, hgt)
+      if on.moved {
+        let c = on.at(camv.center[0], camv.center[1])
+        camv.center = [c.x, c.y, camv.center[2]]
+        camv.rotation = Diorama.m3mul(camv.rotation, [on.c, on.s, 0, -on.s, on.c, 0, 0, 0, 1])
       }
       let near = 0.3, far = 500.0
       let proj = [
@@ -615,8 +646,10 @@
       // sky
       enc.setRenderPipelineState(sky)
       enc.setDepthStencilState(depthOff)
-      var skyColors = [SIMD4(th.skyTop, 1), SIMD4(th.horizon, 1)]
-      enc.setFragmentBytes(&skyColors, length: MemoryLayout<SIMD4<Float>>.stride * 2, index: 0)
+      // where the level ground's horizon is on the screen (clip y): the road's direction, infinitely far
+      let far4 = vp * SIMD4<Float>(1, 0, 0, 0), hy = far4.w > 1e-6 ? far4.y / far4.w : 2
+      var skyColors = [SIMD4(th.skyTop, 1), SIMD4(th.horizon, 1), SIMD4(hy, max(1 - hy, 0.25) * 1.5, 0, 0)]
+      enc.setFragmentBytes(&skyColors, length: MemoryLayout<SIMD4<Float>>.stride * 3, index: 0)
       enc.drawPrimitives(type: .triangle, vertexStart: 0, vertexCount: 3)
 
       // ground with the road map
@@ -644,8 +677,8 @@
 
       if let state = frame.state {
         let objs = objects(state)
-        drawDecals(enc, state, objs, hgt, &uniforms)
-        drawMeshes(enc, objs, hgt, vp, &uniforms)
+        drawDecals(enc, state, objs, hgt, on, &uniforms)
+        drawMeshes(enc, objs, hgt, vp, on, &uniforms)
       }
       enc.endEncoding()
       present(commands)
@@ -656,24 +689,32 @@
       let out = state.out
       guard out.roadEdges.count >= 2 * Diorama.idxN * 2, out.laneLines.count >= 4 * Diorama.idxN * 2 else { return }
       let left = Self.modelLine(Self.line(out.roadEdges, 0), 0), right = Self.modelLine(Self.line(out.roadEdges, 1), 0)
+      // the road between the edges, feathered roadFeather m either side of each: 0 outside, 1 inside, half at the edge
+      // itself. A hard edge at the mask's 0.1 m would stair-step wherever it runs at a slight angle to the grid.
       var tris: [Float] = []
-      for i in 0..<left.count - 1 {
-        let a = left[i], b = left[i + 1], c = right[i], d = right[i + 1]
-        tris += [a.x, a.y, b.x, b.y, c.x, c.y, b.x, b.y, d.x, d.y, c.x, c.y].map(Float.init)
+      let rings: [[SIMD3<Float>]] = left.indices.map { i in
+        let l = left[i], r = right[i], f = min(Self.roadFeather, max((r.y - l.y) / 2, 0))
+        return [SIMD3(l.x, l.y - f, 0), SIMD3(l.x, l.y + f, 1), SIMD3(r.x, r.y - f, 1), SIMD3(r.x, r.y + f, 0)].map { SIMD3<Float>($0) }
+      }
+      for i in 0..<rings.count - 1 {
+        for k in 0..<3 {
+          let a = rings[i][k], b = rings[i + 1][k], c = rings[i][k + 1], d = rings[i + 1][k + 1]
+          for v in [a, b, c, b, d, c] { tris += [v.x, v.y, v.z] }
+        }
       }
       enc.setRenderPipelineState(maskRoad)
-      drawFlat(enc, tris, stride: 2)
+      drawFlat(enc, tris, stride: 3)
       // paint next to a model lane line is drawn by that line
       var lines: [Float] = []
       for i in 0..<4 where out.laneLinesProb.count > 2 * i + 1 && out.laneLinesProb[2 * i + 1] > 0.3 {
         let pts = Self.modelLine(Self.line(out.laneLines, i), 0)
         var rib: Decals = []
         Self.ribbon(&rib, pts, 0.6, .zero, pts.map { _ in 1 }, soft: false, lift: 0)
-        for v in stride(from: 0, to: rib.count, by: 7) { lines += [rib[v], rib[v + 1]] }
+        for v in stride(from: 0, to: rib.count, by: 7) { lines += [rib[v], rib[v + 1], 1] }
       }
       if !lines.isEmpty {
         enc.setRenderPipelineState(maskPaint)
-        drawFlat(enc, lines, stride: 2)
+        drawFlat(enc, lines, stride: 3)
       }
     }
 
@@ -702,18 +743,27 @@
       }
     }
 
-    private func drawDecals(_ enc: MTLRenderCommandEncoder, _ state: DioramaScene.State, _ objs: [Object], _ hgt: Double, _ uniforms: inout FrameUniforms) {
+    private func drawDecals(
+      _ enc: MTLRenderCommandEncoder, _ state: DioramaScene.State, _ objs: [Object], _ hgt: Double, _ on: Carry, _ uniforms: inout FrameUniforms
+    ) {
       let th = theme, out = state.out
+      // what goes with the car between frames (its shadow, the leads', the path), carried on below: the shadows under
+      // everything else on the road, the path over it
+      var shadows: Decals = [], path: Decals = []
       var tris: Decals = []
       tris.reserveCapacity(40_000)
-      for o in objs { Self.blobShadow(&tris, o.x, o.y, o.heading, o.length, o.width, hgt) }
-      Self.blobShadow(&tris, (Diorama.egoFront + Diorama.egoRear) / 2, 0, 0, Diorama.egoFront - Diorama.egoRear, 1.85, hgt)
-      // road edges: a soft red glow
+      for o in objs { Self.blobShadow(&shadows, o.x, o.y, o.heading, o.length, o.width, hgt) }
+      Self.blobShadow(&shadows, (Diorama.egoFront + Diorama.egoRear) / 2, 0, 0, Diorama.egoFront - Diorama.egoRear, 1.85, hgt)
+      on.carry(&shadows)
+      tris += shadows
+      // road edges: a thin red line in a soft glow
       if out.roadEdges.count >= 2 * Diorama.idxN * 2 {
         for i in 0..<2 {
           let pts = Self.modelLine(Self.line(out.roadEdges, i), hgt)
           let a = Diorama.clamp(1 - out.roadEdgesStds[i * Diorama.idxN * 2], 0.3, 1) * 0.5
-          Self.ribbon(&tris, pts, 0.4, th.edge, pts.map { a * (1 - Diorama.smoothstep(130, 190, $0.x)) }, soft: true)
+          let fade = pts.map { 1 - Diorama.smoothstep(110, 180, $0.x) }
+          Self.ribbon(&tris, pts, 0.75, th.edge, fade.map { 0.28 * a * $0 }, soft: true)  // the glow
+          Self.ribbon(&tris, pts, 0.11, th.edge, fade.map { 1.7 * a * $0 }, soft: true)  // the line
         }
       }
       // lane lines, faded by probability and distance
@@ -768,13 +818,19 @@
           var at = Array(stride(from: 0.0, to: total, by: 0.5))
           at.append(total)
           let xs = pts.map(\.x), ys = pts.map(\.y), zs = pts.map(\.z)
-          let res = at.map { SIMD3(Diorama.interp($0, arc, xs), Diorama.interp($0, arc, ys), Diorama.interp($0, arc, zs)) }
-            .filter { $0.x > Diorama.egoFront - 0.5 }
-          if res.count >= 2 {
-            Self.ribbon(&tris, res, 0.85, th.path, res.map { 0.8 * (1 - Diorama.smoothstep(12, 70, $0.x)) }, soft: true, lift: 0.03)
+          // fading with distance, and out over its last metres, so wherever it is cut it has no square end
+          let tail = min(5, 0.5 * total)
+          let all = at.map { (SIMD3(Diorama.interp($0, arc, xs), Diorama.interp($0, arc, ys), Diorama.interp($0, arc, zs)), total - $0) }
+            .filter { $0.0.x > Diorama.egoFront - 0.5 }
+          if all.count >= 2 {
+            Self.ribbon(
+              &path, all.map(\.0), 0.85, th.path, all.map { 0.8 * (1 - Diorama.smoothstep(12, 70, $0.0.x)) * Diorama.smoothstep(0, tail, $0.1) },
+              soft: true, lift: 0.03)
           }
         }
       }
+      on.carry(&path)
+      tris += path
       guard !tris.isEmpty else { return }
       enc.setRenderPipelineState(decal)
       enc.setDepthStencilState(depthTestOnly)
@@ -783,14 +839,17 @@
       drawFlat(enc, tris, stride: 7)
     }
 
-    private func drawMeshes(_ enc: MTLRenderCommandEncoder, _ objs: [Object], _ hgt: Double, _ vp: float4x4, _ uniforms: inout FrameUniforms) {
+    private func drawMeshes(
+      _ enc: MTLRenderCommandEncoder, _ objs: [Object], _ hgt: Double, _ vp: float4x4, _ on: Carry, _ uniforms: inout FrameUniforms
+    ) {
       guard let car else { return }
       let th = theme
       enc.setRenderPipelineState(mesh)
       enc.setDepthStencilState(depthWrite)
       enc.setVertexBuffer(car.vertices, offset: 0, index: 0)
       enc.setFragmentBytes(&uniforms, length: MemoryLayout<FrameUniforms>.stride, index: 0)
-      func draw(_ x: Double, _ y: Double, _ heading: Double, paint: SIMD3<Float>, tint: SIMD3<Float>?, tintAmt: Float, spec: Float, brake: Float) {
+      func draw(_ x0: Double, _ y0: Double, _ heading0: Double, paint: SIMD3<Float>, tint: SIMD3<Float>?, tintAmt: Float, spec: Float, brake: Float) {
+        let at = on.at(x0, y0), x = at.x, y = at.y, heading = heading0 + on.yaw
         let c = cos(heading), s = sin(heading)
         // local (x forward, y right, z up) -> road (z down)
         let model = Self.matrix([c, -s, 0, x, s, c, 0, y, 0, 0, -1, hgt, 0, 0, 0, 1])
@@ -832,7 +891,8 @@
         SkyOut o; o.pos = float4(p[vid], 0.9999, 1.0); o.vy = p[vid].y; return o;
       }
       fragment float4 sky_f(SkyOut in [[stage_in]], constant float4* c [[buffer(0)]]) {
-        return float4(mix(c[1].rgb, c[0].rgb, clamp(in.vy * 0.5 + 0.5, 0.0, 1.0)), 1.0);
+        // the horizon's colour at the horizon itself (c[2].x, where the fogged ground ends), up to the sky's over c[2].y
+        return float4(mix(c[1].rgb, c[0].rgb, smoothstep(0.0, 1.0, (in.vy - c[2].x) / c[2].y)), 1.0);
       }
 
       struct WorldOut { float4 pos [[position]]; float3 w; };
@@ -860,18 +920,23 @@
         float p3 = map_a.sample(mip, map_uv(vw.xy + float2(0.0, 0.45), g)).g, p4 = map_a.sample(mip, map_uv(vw.xy - float2(0.0, 0.45), g)).g;
         float blob = step(0.5, a.g) * step(0.5, min(min(p1, p2), min(p3, p4)));
         c += (g.sidewalk.rgb - g.ground.rgb) * smoothstep(0.35, 0.6, b.r) * seen;
-        c = mix(c, g.road.rgb, smoothstep(0.4, 0.6, max(min(a.r + a.g + a.b, 1.0), m.r)));
+        // the road: the model's, feathered in the mask, and the map's, read two mip levels down so its 0.1 m cells blur
+        // into a soft edge as well
+        float4 ar = map_a.sample(mip, uv, bias(2.0)) * inside;
+        float mapped = smoothstep(0.25, 0.75, min(ar.r + ar.g + ar.b, 1.0));
+        c = mix(c, g.road.rgb, max(mapped, smoothstep(0.0, 1.0, m.r)));
         c = mix(c, g.curb.rgb, smoothstep(0.3, 0.55, a.a) * seen);
         c = mix(c, g.paint.rgb, smoothstep(0.4, 0.6, a.g) * (1.0 - max(m.g, blob)) * seen);
         return float4(apply_fog(c, vw, f), 1.0);
       }
 
       // the ego-frame mask, as far ahead as the driving model sees: x -30..210 m down the texture from its top row, y -60..60 m across
-      vertex float4 mask_v(uint vid [[vertex_id]], const device float2* v [[buffer(0)]]) {
-        float2 p = v[vid];
-        return float4(p.y / 60.0, (p.x - 90.0) / 120.0, 0.0, 1.0);
+      struct MaskOut { float4 pos [[position]]; float v; };
+      vertex MaskOut mask_v(uint vid [[vertex_id]], const device packed_float3* v [[buffer(0)]]) {
+        float3 p = float3(v[vid]);
+        MaskOut o; o.pos = float4(p.y / 60.0, (p.x - 90.0) / 120.0, 0.0, 1.0); o.v = p.z; return o;
       }
-      fragment float4 mask_f() { return float4(1.0); }
+      fragment float4 mask_f(MaskOut in [[stage_in]]) { return float4(in.v); }
 
       struct DecalV { packed_float3 p; packed_float4 c; };
       struct DecalOut { float4 pos [[position]]; float3 w; float4 c; };
@@ -910,6 +975,26 @@
         return float4(apply_fog(c, in.w, f), 1.0);
       }
       """
+  }
+
+  /// Where the car has got to since a frame: its own motion (forward and rightward m/s, yaw rad/s) for `ahead` seconds,
+  /// in that frame's road frame.
+  struct Carry {
+    let x: Double, y: Double, yaw: Double, c: Double, s: Double
+    init(_ motion: SIMD3<Double>, _ ahead: Double) {
+      (x, y, yaw) = (motion.x * ahead, motion.y * ahead, motion.z * ahead)
+      (c, s) = (cos(motion.z * ahead), sin(motion.z * ahead))
+    }
+    var moved: Bool { x != 0 || y != 0 || yaw != 0 }
+    func at(_ px: Double, _ py: Double) -> SIMD2<Double> { SIMD2(x + c * px - s * py, y + s * px + c * py) }
+    /// Decal vertices (x, y, z, r, g, b, a) carried on.
+    func carry(_ decals: inout [Float]) {
+      guard moved else { return }
+      for i in stride(from: 0, to: decals.count, by: 7) {
+        let p = at(Double(decals[i]), Double(decals[i + 1]))
+        (decals[i], decals[i + 1]) = (Float(p.x), Float(p.y))
+      }
+    }
   }
 
   /// The camera's heading, following the car's through a critically damped spring: no overshoot, no shake, and a lag

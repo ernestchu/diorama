@@ -471,6 +471,10 @@ public final class DioramaScene {
     public let stripes: [[SIMD2<Double>]]
     /// 0 the road view behind the car, 1 bird's-eye; and while bird's-eye, why (DioramaViewChooser's cue), or "".
     public let view: Double, viewWhy: String
+    /// How far the road view is widened, 0 to 1 (zoomView); and how the car is moving in its own frame: forward and
+    /// rightward m/s and yaw rad/s, from the last two poses, lightly smoothed. What a renderer carries the car on by
+    /// between frames.
+    public let wide: Double, motion: SIMD3<Double>
     /// Speed (m/s), acceleration (m/s²), the lead's distance.
     public let speed: Double, accel: Double, leadDistance: Double?
     /// The stop line ahead, held in the world: four corners, drawn as a stripe.
@@ -481,9 +485,10 @@ public final class DioramaScene {
     public init(
       frame: Int, seconds: Double, out: DioramaOutputs, px: [Double], py: [Double], pz: [Double], lead: Lead?, leads: [Lead]? = nil, pose: SIMD3<Double>,
       stripes: [[SIMD2<Double>]], view: Double, viewWhy: String, speed: Double, accel: Double, leadDistance: Double?,
-      stopLine: [SIMD2<Double>]? = nil, planEnd: Double? = nil
+      stopLine: [SIMD2<Double>]? = nil, planEnd: Double? = nil, wide: Double = 0, motion: SIMD3<Double> = .zero
     ) {
       (self.stopLine, self.planEnd) = (stopLine, planEnd)
+      (self.wide, self.motion) = (wide, motion)
       self.leads = leads ?? lead.map { [$0] } ?? []
       (self.frame, self.seconds, self.out, self.px, self.py, self.pz, self.lead) = (frame, seconds, out, px, py, pz, lead)
       (self.pose, self.stripes, self.view, self.viewWhy) = (pose, stripes, view, viewWhy)
@@ -497,6 +502,12 @@ public final class DioramaScene {
   }
 
   public var panSeconds = 3.0
+  /// One road view that widens for what the chooser would pan up to bird's-eye for, and bird's-eye only once the car
+  /// has been stopped `stopSeconds`, until it moves off above `moveAbove` mph; without it, the chooser's two views
+  /// (the page's stills, and the parity tests). As diorama-engine.js's `zoom`.
+  public var zoomView = false
+  public var widenSeconds = 2.5, stopSeconds = 3.0, moveAbove = 6.0
+  private var wide = 0.0, stoppedFor = 0.0, atStop = false, motion: SIMD3<Double>?
   /// What picks the road view or bird's-eye; its numbers can be changed before a drive starts.
   public var viewOptions = DioramaViewChooser.Options()
 
@@ -545,6 +556,7 @@ public final class DioramaScene {
     stripesFrame = -1
     speed = nil
     view = nil
+    (wide, stoppedFor, atStop, motion) = (0, 0, false, nil)
     chooser = DioramaViewChooser(viewOptions)
     frame = -1
     state = nil
@@ -651,18 +663,37 @@ public final class DioramaScene {
     // the stop line counts as a crossing ahead, as the page's stripes carry it
     let target = chooser.step(chooser.cue(speed, px, py, pv, stripes + (stopLine.map { [$0] } ?? []), pose, lead), speed)
     let stepS = Diorama.dt / panSeconds
-    if let view {
-      let sign: Double = target > view ? 1 : target < view ? -1 : 0
-      self.view = Diorama.clamp(view + sign * stepS, min(view, target), max(view, target))
-    } else {
-      view = target
+    func toward(_ x: Double, _ goal: Double, _ step: Double) -> Double {
+      Diorama.clamp(x + (goal > x ? step : goal < x ? -step : 0), min(x, goal), max(x, goal))
     }
+    var up = target
+    if zoomView {
+      // stopped for a moment: bird's-eye, until the car moves off again; anything else the chooser has a cue for only
+      // widens the road view
+      let mph = speed * Diorama.mph
+      stoppedFor = mph < viewOptions.stopped ? stoppedFor + Diorama.dt : 0
+      if stoppedFor >= stopSeconds { atStop = true } else if mph > moveAbove { atStop = false }
+      up = atStop ? 1 : 0
+      wide = toward(wide, target, Diorama.dt / widenSeconds)
+    } else {
+      wide = 0
+    }
+    view = view.map { toward($0, up, stepS) } ?? up
+
+    var motion = SIMD3(v, 0, 0)
+    if let before = trail.pose(k - 1) {
+      let c = cos(pNow.yaw), s = sin(pNow.yaw), dx = pNow.x - before.x, dy = pNow.y - before.y
+      let dyaw = atan2(sin(pNow.yaw - before.yaw), cos(pNow.yaw - before.yaw))
+      motion = SIMD3((c * dx + s * dy) / Diorama.dt, (-s * dx + c * dy) / Diorama.dt, dyaw / Diorama.dt)
+      if let last = self.motion { motion = 0.5 * motion + 0.5 * last }
+    }
+    self.motion = motion
 
     state = State(
       frame: k, seconds: seconds, out: out, px: px, py: py, pz: pz, lead: lead, leads: leads,
       pose: pose, stripes: stripes, view: Diorama.smoothstep(0, 1, view ?? 0), viewWhy: target == 1 ? chooser.why : "",
       speed: speed, accel: out.plan(0, 6), leadDistance: lead?.x, stopLine: stopLine,
-      planEnd: Diorama.planEnd(px, (0..<n).map { out.plan($0, 6) }))
+      planEnd: Diorama.planEnd(px, (0..<n).map { out.plan($0, 6) }), wide: Diorama.smoothstep(0, 1, wide), motion: motion)
   }
 }
 

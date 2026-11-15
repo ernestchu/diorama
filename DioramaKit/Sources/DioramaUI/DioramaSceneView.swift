@@ -15,6 +15,9 @@
     /// Where the number of seconds of the plan to draw is kept.
     public static let planSecondsKey = "planSeconds"
     public static let planSecondsDefault = 2.0
+    /// Where the road view's zoom is kept: 0 for Auto, or how many times its own zoom it is held at.
+    public static let zoomKey = "viewZoom"
+    public static let zooms: [Double] = [0, 0.5, 1, 2]
 
     let feed: any DioramaFeed
     let player: DioramaPlayer
@@ -26,6 +29,7 @@
     @AppStorage(DioramaSceneView.dioramaKey) private var showDiorama = true
     @AppStorage(DioramaCamera.storageKey) private var camera = DioramaCamera.defaults
     @AppStorage(DioramaSceneView.planSecondsKey) private var planSeconds = DioramaSceneView.planSecondsDefault
+    @AppStorage(DioramaSceneView.zoomKey) private var zoom = 0.0
     @Environment(\.colorScheme) private var colorScheme
 
     public init(feed: any DioramaFeed, player: DioramaPlayer, modelInput: Bool = true, footageTop: CGFloat = 0) {
@@ -37,9 +41,10 @@
 
     public var body: some View {
       ZStack(alignment: .topLeading) {
-        DioramaMetalView(player: player, dark: colorScheme == .dark, camera: camera, planSeconds: planSeconds, cutAtLead: true, followHeading: true)
+        DioramaMetalView(player: player, dark: colorScheme == .dark, camera: camera, planSeconds: planSeconds, cutAtLead: true, followHeading: true,
+          zoom: zoom > 0 ? zoom : nil, carry: true)
           .ignoresSafeArea()
-        if let hud = player.hud { DioramaHUD(hud: hud).padding(14) }
+        if let hud = player.hud { DioramaHUD(hud: hud, zoom: zoom > 0 ? zoom : nil).padding(14) }
         if modelInput && showInput, let picture = player.input {
           DioramaInputView(picture: picture)
             .frame(maxWidth: 512)
@@ -86,6 +91,8 @@
   /// The speed, the lead, the view, and the acceleration as a bar, as the page's HUD.
   struct DioramaHUD: View {
     let hud: DioramaPlayer.HUD
+    /// The zoom the road view is held at, if it is.
+    var zoom: Double?
 
     var body: some View {
       VStack(alignment: .leading, spacing: 0) {
@@ -96,7 +103,7 @@
         if let lead = hud.lead {
           Text("lead \(lead) m").font(.system(size: 12)).foregroundStyle(Color(white: 0.77)).padding(.top, 6)
         }
-        Text(hud.mode).font(.system(size: 12)).kerning(0.7).foregroundStyle(Color(white: 0.55)).padding(.top, 6)
+        Text(hud.mode(zoom: zoom)).font(.system(size: 12)).kerning(0.7).foregroundStyle(Color(white: 0.55)).padding(.top, 6)
       }
       .padding(.vertical, 12)
       .padding(.leading, 16)
@@ -265,6 +272,10 @@
     var cutAtLead = false
     /// Whether the camera follows the car's heading through a spring.
     var followHeading = false
+    /// The road view held at this many times its zoom; nil lets the scene widen it and go to bird's-eye.
+    var zoom: Double?
+    /// Whether the car is carried on between the drive's frames, drawn at the screen's rate while frames come.
+    var carry = false
 
     func makeCoordinator() -> Coordinator { Coordinator(player: player) }
 
@@ -292,7 +303,8 @@
     private func update(_ view: MTKView, _ context: Context) {
       let coordinator = context.coordinator
       coordinator.player = player
-      player.redraw = { [weak coordinator] in coordinator?.setNeedsDisplay() }
+      coordinator.carry = carry
+      player.redraw = { [weak coordinator] in coordinator?.frameArrived() }
       if coordinator.dark != dark {
         coordinator.dark = dark
         coordinator.renderer?.theme = dark ? .dark : .light
@@ -300,13 +312,14 @@
       }
       if let renderer = coordinator.renderer,
         renderer.camera != camera || renderer.fixedView != fixedView || renderer.planSeconds != planSeconds || renderer.cutAtLead != cutAtLead
-          || renderer.followHeading != followHeading || coordinator.preview != preview
+          || renderer.followHeading != followHeading || renderer.zoom != zoom || coordinator.preview != preview
       {
         renderer.camera = camera
         renderer.fixedView = fixedView
         renderer.planSeconds = planSeconds
         renderer.cutAtLead = cutAtLead
         renderer.followHeading = followHeading
+        renderer.zoom = zoom
         coordinator.preview = preview
         coordinator.setNeedsDisplay()
       }
@@ -325,7 +338,42 @@
         renderer = MTLCreateSystemDefaultDevice().flatMap { DioramaRenderer(device: $0) }
       }
 
+      /// Whether to draw at the screen's rate while frames come, carrying the car on between them.
+      var carry = false
+      /// When the last batch came, and the drive's clock against this one: a frame's seconds plus `offset` is when it
+      /// came, evened out over the frames' jitter.
+      private var arrivedAt = 0.0, offset: Double?, seenFrame: Int?
       private var drawPending = false
+
+      /// A batch has been taken: draw, and with `carry` keep drawing at the screen's rate until frames stop coming.
+      func frameArrived() {
+        arrivedAt = CACurrentMediaTime()
+        if carry, !preview, let view, view.isPaused {
+          view.enableSetNeedsDisplay = false
+          view.isPaused = false
+        }
+        setNeedsDisplay()
+      }
+
+      /// How long ago `state`'s frame was, by the evened-out clock, up to two frames; and back to drawing on demand
+      /// once none has come for half a second.
+      private func ahead(of state: DioramaScene.State?, in view: MTKView) -> Double {
+        guard carry, !preview, !view.isPaused else { return 0 }
+        let now = CACurrentMediaTime()
+        if now - arrivedAt > 0.5 {
+          view.isPaused = true
+          view.enableSetNeedsDisplay = true
+          (offset, seenFrame) = (nil, nil)
+          return 0
+        }
+        guard let state else { return 0 }
+        if state.frame != seenFrame {
+          seenFrame = state.frame
+          let d = arrivedAt - state.seconds
+          if let o = offset, abs(d - o) < 0.25 { offset = o + 0.1 * (d - o) } else { offset = d }
+        }
+        return Diorama.clamp(now - state.seconds - (offset ?? now - state.seconds), 0, 2 * Diorama.dt)
+      }
 
       /// Draws once more, soon: once for however many asks come before it does.
       func setNeedsDisplay() {
@@ -354,7 +402,7 @@
         MainActor.assumeIsolated {
           guard let renderer, let pass = view.currentRenderPassDescriptor else { return }
           let frame = preview ? DioramaRenderer.preview(view: renderer.fixedView) : player.box.with { renderer.take($0) }
-          renderer.draw(frame, to: pass, size: view.drawableSize) { commands in
+          renderer.draw(frame, to: pass, size: view.drawableSize, ahead: ahead(of: frame.state, in: view)) { commands in
             if let drawable = view.currentDrawable { commands.present(drawable) }
           }
         }

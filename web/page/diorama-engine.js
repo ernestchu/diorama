@@ -770,7 +770,9 @@
   // ---------------------------------------------------------------- the scene, frame by frame
   class Engine {
     constructor(opts = {}) {
-      this.opts = Object.assign({ panSeconds: 3, view: {} }, opts);
+      // zoom: one road view that widens for what the chooser would pan up to bird's-eye for, and bird's-eye only
+      // once the car has stopped; without it (the app's scene, and the parity tests) the chooser's two views
+      this.opts = Object.assign({ panSeconds: 3, view: {}, zoom: false, widenSeconds: 2.5, stopSeconds: 3, moveAbove: 6 }, opts);
       this.meta = null;
       this.reset();
     }
@@ -789,6 +791,7 @@
       this.leadBars = new CommaLeadBars(); this.leadBraking = {};
       this.stripes = []; this.stripesFrame = -1;
       this.speed = null; this.view = null; this.chooser = new ViewChooser(this.opts.view);
+      this.wide = 0; this.stoppedFor = 0; this.atStop = false;
       this.frame = -1; this.state = null;
       this.timing = { model: [], seg: [], segFrames: [], lag: [] };
     }
@@ -885,12 +888,36 @@
       this.speed = this.speed === null ? v : 0.9 * this.speed + 0.1 * v;
       const target = this.chooser.step(this.chooser.cue(this.speed, px, py, pv, stripes, pNow, lead), this.speed);
       const stepS = DT / this.opts.panSeconds;
-      this.view = this.view === null ? target : clamp(this.view + Math.sign(target - this.view) * stepS, Math.min(this.view, target), Math.max(this.view, target));
+      const toward = (x, goal, step) => clamp(x + Math.sign(goal - x) * step, Math.min(x, goal), Math.max(x, goal));
+      let up = target;
+      if (this.opts.zoom) {
+        // stopped for a moment: bird's-eye, until the car moves off again; anything else the chooser has a cue for
+        // only widens the road view
+        const mph = this.speed * MPH;
+        this.stoppedFor = mph < this.chooser.o.stopped ? this.stoppedFor + DT : 0;
+        if (this.stoppedFor >= this.opts.stopSeconds) this.atStop = true;
+        else if (mph > this.opts.moveAbove) this.atStop = false;
+        up = this.atStop ? 1 : 0;
+        this.wide = toward(this.wide, target, DT / this.opts.widenSeconds);
+      } else this.wide = 0;
+      this.view = this.view === null ? up : toward(this.view, up, stepS);
+
+      // how the car is moving, in its own frame: forward and rightward m/s and yaw rad/s, from the last two poses and
+      // lightly smoothed. What a renderer carries the car on by between frames.
+      const before = this.trail.pose(k - 1);
+      let motion = [v, 0, 0];
+      if (before) {
+        const c = Math.cos(pNow[2]), s = Math.sin(pNow[2]), dx = pNow[0] - before[0], dy = pNow[1] - before[1];
+        const dyaw = Math.atan2(Math.sin(pNow[2] - before[2]), Math.cos(pNow[2] - before[2]));
+        motion = [(c * dx + s * dy) / DT, (-s * dx + c * dy) / DT, dyaw / DT];
+        if (this.motion) motion = motion.map((m, i) => 0.5 * m + 0.5 * this.motion[i]);
+      }
+      this.motion = motion;
 
       this.state = {
-        frame: k, seconds: msg.seconds, out, px, py, pz, pv, zpath, lead, leads,
+        frame: k, seconds: msg.seconds, motion, out, px, py, pz, pv, zpath, lead, leads,
         planEnd: planEnd(px, Array.from({ length: IDX_N }, (_, i) => plan(out.plan, i, 6))),
-        pose: pNow, stripes, stopLine, view: smoothstep(0, 1, this.view), viewWhy: target ? this.chooser.why : '',
+        pose: pNow, stripes, stopLine, view: smoothstep(0, 1, this.view), wide: smoothstep(0, 1, this.wide), viewWhy: target ? this.chooser.why : '',
         hud: { v: this.speed, a: plan(out.plan, 0, 6), lead: lead ? lead.x : null },
       };
       return this.state;
