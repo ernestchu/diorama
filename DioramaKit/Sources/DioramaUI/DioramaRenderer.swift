@@ -185,10 +185,6 @@
     /// never shakes the whole picture.
     var followHeading = false
     private var heading = HeadingSpring()
-    /// The road view held at this many times its zoom, whatever the scene asks: no widening, and no bird's-eye.
-    var zoom: Double?
-    /// The road view at its widest: this many times the zoom, and this many degrees higher.
-    static let wide = (zoom: 0.62, pitch: 10.0)
     /// How far either side of a road edge the road's surface fades out, m.
     static let roadFeather = 0.7
     private let queue: MTLCommandQueue
@@ -378,19 +374,9 @@
     /// less height only shows more or less of what lies ahead at the top.
     static let aboveBottom = (road: (1 - 0.42) * 9 / 16, bird: (1 - 0.5) * 9 / 16)
 
-    /// `wide` (0 to 1) widens the road view: zoomed out about the car, and seen from a little higher. `zoom` holds
-    /// it at that many times its zoom.
-    static func camera(
-      _ s: Double, _ hgt: Double, _ w: Double, _ h: Double, _ given: DioramaCamera = .defaults, wide: Double = 0, zoom: Double? = nil
-    ) -> (
+    static func camera(_ s: Double, _ hgt: Double, _ w: Double, _ h: Double, _ setup: DioramaCamera = .defaults) -> (
       f: Double, cx: Double, cy: Double, rotation: [Double], center: [Double]
     ) {
-      var setup = given
-      let ratio = zoom ?? pow(Self.wide.zoom, wide)
-      if ratio != 1 || wide > 0 {
-        DioramaCamera.zoom(&setup.road, to: setup.road.zoom * ratio, view: 0)
-        if zoom == nil { setup.road.pitch += Self.wide.pitch * wide }
-      }
       let chase = place(roadEye(hgt), setup.road, hgt), bird = place(birdEye(hgt), setup.bird, hgt)
       let rel = logRot(Diorama.m3mul(bird.rotation, transpose3(chase.rotation)))
       let rotation = Diorama.m3mul(rodrigues(rel.map { $0 * s }), chase.rotation)
@@ -605,10 +591,7 @@
       }
 
       let live = fixedView == nil ? frame.state : nil
-      // a zoom set by hand holds the road view
-      var camv = Self.camera(
-        fixedView ?? (zoom == nil ? frame.state?.view : nil) ?? 0, hgt, w, h, camera, wide: zoom == nil ? live?.wide ?? 0 : 0,
-        zoom: fixedView == nil ? zoom : nil)
+      var camv = Self.camera(fixedView ?? frame.state?.view ?? 0, hgt, w, h, camera)
       let on = Carry(frame.state?.motion ?? .zero, max(ahead, 0))
       var lag = 0.0
       if followHeading, let state = live {

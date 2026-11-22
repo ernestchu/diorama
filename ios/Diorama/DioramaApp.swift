@@ -195,7 +195,6 @@ struct SettingsView: View {
   @AppStorage(DioramaSceneView.inputKey) private var showInput = false
   @AppStorage(DioramaSceneView.dioramaKey) private var showDiorama = true
   @AppStorage(DioramaSceneView.planSecondsKey) private var planSeconds = DioramaSceneView.planSecondsDefault
-  @AppStorage(DioramaSceneView.zoomKey) private var zoom = 0.0
   @AppStorage(AppTheme.key) private var theme = AppTheme.standard
   @State private var draft = ""
   private let models = Models.shared
@@ -237,13 +236,6 @@ struct SettingsView: View {
           Text("Drive")
         } footer: {
           Text("The frame the models see, with the comma's prediction drawn as on its display. Diorama's own prediction, the stop line, is drawn over it too when that is on.")
-        }
-        Section {
-          Picker("Zoom", selection: $zoom) {
-            ForEach(DioramaSceneView.zooms, id: \.self) { Text($0 > 0 ? "\($0.formatted())×" : "Auto").tag($0) }
-          }
-        } footer: {
-          Text("Auto widens the road view for turns, crossings, traffic and slow driving, and goes to bird's-eye once the car has stopped. A number holds the road view at that zoom.")
         }
         Section {
           Stepper(value: $planSeconds, in: 0.5...10, step: 0.5) {

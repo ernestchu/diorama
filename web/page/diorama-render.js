@@ -25,8 +25,6 @@
   };
 
   // the car's paint (diorama-assets.bin marks it): the lead's under its tint, and the ego car's
-  // the road view at its widest: this many times the zoom, and this many degrees higher
-  const WIDE = { zoom: 0.62, pitch: 10 };
   // how far either side of a road edge the road's surface fades out, m
   const ROAD_FEATHER = 0.7;
   const LEAD_PAINT = [0.62, 0.62, 0.64], EGO_PAINT = [0.66, 0.66, 0.68];
@@ -274,7 +272,6 @@ void main() {
       this.t = THEMES[theme] || THEMES.dark;
       this.views = defaultCamera();  // each view's zoom, pitch and forward
       this.fixedView = null;  // 0 or 1 holds the road or the bird's-eye view, whatever the engine asks
-      this.zoom = 'auto';  // or a number: the road view held at that many times its zoom, whatever the engine asks
       this.followHeading = false;  // the camera follows the car's heading through a spring, not rigidly
       this.heading = new HeadingSpring();
       this.prog = {};
@@ -379,16 +376,8 @@ void main() {
     }
 
     // the virtual camera for a view between the chase camera (0) and the bird's-eye view (1)
-    // `wide` (0 to 1) widens the road view: zoomed out about the car, and seen from a little higher
-    camera(s, hgt, w, h, wide = 0) {
-      let n = this.views;
-      const ratio = typeof this.zoom === 'number' ? this.zoom : WIDE.zoom ** wide;
-      if (ratio !== 1 || wide > 0) {
-        n = { road: { ...n.road }, bird: n.bird };
-        zoomView(n, 'road', ratio);
-        if (typeof this.zoom !== 'number') n.road.pitch += WIDE.pitch * wide;
-      }
-      const { C: Cc, M: Mc } = placed(VIEWS.road, n.road, hgt), { C: Cb, M: Mb } = placed(VIEWS.bird, n.bird, hgt);
+    camera(s, hgt, w, h) {
+      const n = this.views, { C: Cc, M: Mc } = placed(VIEWS.road, n.road, hgt), { C: Cb, M: Mb } = placed(VIEWS.bird, n.bird, hgt);
       const rel = logRot(E.m3mul(Mb, transpose3(Mc)));
       const M = E.m3mul(rodrigues(rel.map((v) => v * s)), Mc);
       const C = [Cc[0] + (Cb[0] - Cc[0]) * s, Cc[1] + (Cb[1] - Cc[1]) * s, Cc[2] + (Cb[2] - Cc[2]) * s ** 0.7];  // rise a bit faster than it moves back
@@ -428,8 +417,7 @@ void main() {
       gl.colorMask(true, true, true, true);
 
       gl.viewport(0, 0, w, h);
-      const held = typeof this.zoom === 'number';  // a zoom set by hand holds the road view
-      const camv = this.camera(this.fixedView ?? (state && !held ? state.view : 0), hgt, w, h, state && !held && this.fixedView == null ? state.wide || 0 : 0);
+      const camv = this.camera(this.fixedView ?? (state ? state.view : 0), hgt, w, h);
       const mo = state && state.motion && ahead > 0 ? state.motion : [0, 0, 0];
       const on = { x: mo[0] * ahead, y: mo[1] * ahead, yaw: mo[2] * ahead };
       on.c = Math.cos(on.yaw); on.s = Math.sin(on.yaw);
