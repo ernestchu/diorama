@@ -7,15 +7,21 @@ import Foundation
 ///
 /// The link carries the model's outputs and nothing else of the car's state, so it is drawn as the comma draws it
 /// engaged, with openpilot longitudinal control, no steering torque and no camera offset. The leads are the model's
-/// own, as radard makes them on a car without radar. The lead bar is smoothed as the display smooths it (LeadBars). The
-/// lane-centering line (blendful), the confidence ball and the badges are not drawn.
+/// own, as radard makes them on a car without radar. The lead bar is smoothed as the display smooths it (LeadBars), and
+/// so is the stop bar across the lane where the plan stops with no lead (StopPoint). The lane-centering line (blendful),
+/// the confidence ball and the badges are not drawn.
 public enum CommaUI {
-  /// The commit of https://github.com/ernestchu/zoompilot/tree/ernestchu/diorama this matches.
-  public static let pinnedCommit = "2ef7f8522f35a91e017b102673ec31fb9f1cebe7"
+  /// The commit of https://github.com/ernestchu/zoompilot (main) this matches: its mici model_renderer.py, the base
+  /// onroad/model_renderer.py that extends and the status fade, as vendored in sim/commasim/vendor/comma_ui.
+  public static let pinnedCommit = "f628686b278675501933c8b9aba9efcb43534648"
 
   static let clipMargin = 500.0
   static let minDrawDistance = 10.0, maxDrawDistance = 100.0
-  static let leadBarLength = 12.0, leadBarWidth = 1.8  // px, m
+  static let leadBarLength = 10.0, leadBarWidth = 1.8  // px, m
+  static let laneLineWidths = [0.12, 0.16, 0.16, 0.16], roadEdgeWidth = 0.16  // m, a lane line's at a probability of 1
+  /// The stop bar: a planned speed under `stopSpeed` is a stop, shown from `stopAppear` out and hidden by a lead within
+  /// `stopLeadMargin` past it; its ends at the lane lines the model is `laneLineProb` sure of, else at `laneEdges`.
+  static let stopSpeed = 1.0, stopAppear = (8.0, 50.0), stopLeadMargin = 15.0, laneEdges = [-1.8, 1.8], laneLineProb = 0.5
   static let radarToCamera = 1.52
   /// calibrationd's HEIGHT_INIT: the camera's height before the comma has calibrated one.
   static let heightInit = 1.22
@@ -53,7 +59,7 @@ public enum CommaUI {
   /// The fields of modelV2 the display reads.
   public struct Model: Sendable {
     public var position: Line
-    public var accelerationX: [Double]
+    public var velocityX: [Double], accelerationX: [Double]
     public var laneLines: [Line], laneLineProbs: [Double]
     public var roadEdges: [Line], roadEdgeStds: [Double]
     public var leads: [Lead]
@@ -70,6 +76,7 @@ public enum CommaUI {
         Line(x: Diorama.xIdxs, y: (0..<n).map { DioramaOutputs.line(l, i, $0, 0) }, z: (0..<n).map { DioramaOutputs.line(l, i, $0, 1) })
       }
       position = Line(x: column(0), y: column(1), z: column(2))
+      velocityX = column(3)
       accelerationX = column(6)
       laneLines = (0..<4).map { line(out.laneLines, $0) }
       laneLineProbs = (0..<4).map { out.laneLinesProb[2 * $0 + 1] }
@@ -95,10 +102,10 @@ public enum CommaUI {
   public struct LeadBars: Sendable {
     /// 20 Hz frames from the model, on a 60 Hz display.
     public static let rendersPerFrame = 3
-    private static let dt = 1.0 / 60
-    private static let positionRC = 0.2, fadeRC = 0.1
+    fileprivate static let dt = 1.0 / 60
+    fileprivate static let positionRC = 0.2, fadeRC = 0.1
 
-    private struct Filter: Sendable {
+    fileprivate struct Filter: Sendable {
       let alpha: Double
       var x = 0.0, initialized: Bool
 
@@ -121,6 +128,7 @@ public enum CommaUI {
     }
 
     private var vehicles = [Vehicle(), Vehicle()]
+    private var stop = StopPoint()
 
     public init() {}
 
@@ -132,11 +140,11 @@ public enum CommaUI {
       }
     }
 
-    /// The bars as they are now, in drawing order.
+    /// The bars as they are now, in drawing order: the leads', then the stop's.
     public var polygons: [Polygon] {
-      vehicles.compactMap { v in
-        let a = UInt8(Diorama.clamp(255 * v.fade.x, 0, 255))
-        return v.bar.count >= 3 && a > 0 ? Polygon(points: v.bar, fill: .solid(RGBA(r: 255, g: 255, b: 255, a: a))) : nil
+      (vehicles.map { ($0.bar, $0.fade.x) } + [(stop.bar, stop.fade.x)]).compactMap { bar, fade in
+        let a = UInt8(Diorama.clamp(255 * fade, 0, 255))
+        return bar.count >= 3 && a > 0 ? Polygon(points: bar, fill: .solid(RGBA(r: 255, g: 255, b: 255, a: a))) : nil
       }
     }
 
@@ -148,10 +156,11 @@ public enum CommaUI {
 
     public mutating func advance(_ m: Model, transform: [Double], width: Double, height: Double, roadHeight: Double, renders: Int) {
       let view = View(transform: transform, width: width, height: height), leads = currentLeads(m)
-      for _ in 0..<renders {
+      let hasLane = !m.position.x.isEmpty
+      for render in 0..<renders {
         for i in vehicles.indices where i < leads.count {
           let lead = leads[i]
-          let visible = lead.present && lead.d < maxDrawDistance && !m.position.x.isEmpty
+          let visible = lead.present && lead.d < maxDrawDistance && hasLane
           // snap to a new vehicle instead of sliding over
           if !visible || abs(lead.y - vehicles[i].y.x) > 3 {
             vehicles[i].d.initialized = false
@@ -162,6 +171,62 @@ public enum CommaUI {
             vehicles[i].bar = view.leadBar(m.position, vehicles[i].d.update(lead.d), vehicles[i].y.update(lead.y), roadHeight)
           }
         }
+        // the model's word is new on the first of the display's frames of it
+        let leadDistances = leads.filter { $0.present }.map { $0.d }
+        let planning = stop.update(m, modelUpdated: render == 0, vEgo: m.velocityX.first ?? 0, leadDistances: leadDistances)
+        let dStop = stop.d + radarToCamera, visible = planning && dStop < maxDrawDistance && hasLane
+        // brighter than a lead bar, to tell them apart
+        _ = stop.fade.update(visible ? leadOpacity + 0.2 : 0)
+        if visible {
+          let pathY = npInterp(dStop, m.position.x, m.position.y)
+          var edges: [Double] = []
+          for j in 0..<2 {
+            let line = m.laneLines[j + 1], prob = m.laneLineProbs[j + 1]
+            let y = prob > laneLineProb && !line.x.isEmpty ? npInterp(dStop, line.x, line.y) - pathY : laneEdges[j]
+            edges.append(stop.edges[j].update(y))
+          }
+          stop.bar = view.leadBar(m.position, dStop, 0, roadHeight, edges: (edges[0], edges[1]))
+        }
+      }
+    }
+
+    /// Where the plan stops with no lead to stop behind, e.g. at a stop sign or a red light: the display's StopPoint. The
+    /// stop comes and goes frame to frame, so it has to hold before it shows and before it hides; between model frames
+    /// it moves with the car, the plan's speed now standing in for carState's.
+    private struct StopPoint: Sendable {
+      var bar: [SIMD2<Double>] = []
+      var d = 0.0, plannedD: Double?, visible = false
+      var planning = false, planningFilter = Filter(rc: 0.3, initialized: true)
+      var behindLead = false, behindLeadFilter = Filter(rc: 0.3, initialized: true)
+      var edges = laneEdges.map { y in
+        var f = Filter(rc: positionRC, initialized: false)
+        f.x = y
+        return f
+      }
+      var fade = Filter(rc: fadeRC, initialized: true)
+
+      static func planned(_ m: Model) -> Double? {
+        let vx = m.velocityX, px = m.position.x
+        guard let i = vx.firstIndex(where: { $0 < stopSpeed }), vx.count == px.count else { return nil }
+        return i == 0 ? 0 : npInterp(stopSpeed, [vx[i], vx[i - 1]], [px[i], px[i - 1]])
+      }
+
+      static func hysteresis(_ x: Double, _ state: Bool, on: Double, off: Double) -> Bool { x > on || (state && x > off) }
+
+      mutating func update(_ m: Model, modelUpdated: Bool, vEgo: Double, leadDistances: [Double]) -> Bool {
+        d = max(d - vEgo * LeadBars.dt, 0)
+        if modelUpdated {
+          plannedD = Self.planned(m)
+          if let planned = plannedD { d = visible ? d + 0.3 * (planned - d) : planned }
+        }
+        planning = Self.hysteresis(planningFilter.update(plannedD != nil ? 1 : 0), planning, on: 0.6, off: 0.2)
+        // the lead bar already shows stopping behind a lead
+        let behind = leadDistances.contains { $0 < d + radarToCamera + stopLeadMargin }
+        behindLead = Self.hysteresis(behindLeadFilter.update(behind ? 1 : 0), behindLead, on: 0.6, off: 0.1)
+        // out ahead, not right in front of the car while creeping or stopped, nor so far that a lead may not be seen yet
+        let appear = stopAppear.0 < d && d < stopAppear.1
+        visible = planning && !behindLead && (visible || appear)
+        return visible
       }
     }
   }
@@ -189,17 +254,14 @@ public enum CommaUI {
     var maxDistance = Diorama.clamp(lastX, minDrawDistance, maxDrawDistance)
     let maxIdx = lengthIdx(m.laneLines[0].x, maxDistance)
 
-    // The factor stays at 0.16 from the second line on: the fourth line and the road edges have it too.
-    var widthFactor = 0.12
     for (i, line) in m.laneLines.enumerated() {
-      if i == 1 || i == 2 { widthFactor = 0.16 }
       add(
-        view.ribbon(line, widthFactor * m.laneLineProbs[i], 0, maxIdx, allowInvert: true),
+        view.ribbon(line, laneLineWidths[i] * m.laneLineProbs[i], 0, maxIdx, maxDistance, allowInvert: true),
         .solid(laneColor(m.laneLineProbs[i], adjacent: i == 1 || i == 2)))
     }
     for (i, edge) in m.roadEdges.enumerated() {
       add(
-        view.ribbon(edge, widthFactor, 0, maxIdx, allowInvert: true),
+        view.ribbon(edge, roadEdgeWidth, 0, maxIdx, maxDistance, allowInvert: true),
         .solid(laneColor(1 - m.roadEdgeStds[i], adjacent: m.laneLineProbs[i + 1] < 0.25)))
     }
 
@@ -208,7 +270,7 @@ public enum CommaUI {
       let d = (lead.x - radarToCamera) * 2
       maxDistance = Diorama.clamp(d - min(d * 0.35, 10), 0, maxDistance)
     }
-    let path = view.ribbon(m.position, 0.9, roadHeight, lengthIdx(m.position.x, maxDistance), allowInvert: false)
+    let path = view.ribbon(m.position, 0.9, roadHeight, lengthIdx(m.position.x, maxDistance), maxDistance, allowInvert: false)
     add(path, pathFill(path, m.accelerationX, height: height))
 
     if let leadBars { return out + leadBars }
@@ -216,6 +278,15 @@ public enum CommaUI {
       add(view.leadBar(m.position, lead.d, lead.y, roadHeight), .solid(RGBA(r: 255, g: 255, b: 255, a: UInt8(255 * leadOpacity))))
     }
     return out
+  }
+
+  /// numpy's interp, as the display's file calls it: clamped at the ends, and over two equal xs the second y.
+  static func npInterp(_ x: Double, _ xp: [Double], _ fp: [Double]) -> Double {
+    let n = xp.count
+    if x < xp[0] { return fp[0] }
+    if x >= xp[n - 1] { return fp[n - 1] }
+    for i in 0..<n - 1 where x >= xp[i] && x < xp[i + 1] { return fp[i] + (fp[i + 1] - fp[i]) * (x - xp[i]) / (xp[i + 1] - xp[i]) }
+    return fp[n - 1]
   }
 
   /// The last index at or below `distance`, or 0.
@@ -285,10 +356,19 @@ public enum CommaUI {
         transform[6] * x + transform[7] * y + transform[8] * z)
     }
 
-    func ribbon(_ line: Line, _ yOff: Double, _ zOff: Double, _ maxIdx: Int, allowInvert: Bool) -> [SIMD2<Double>] {
+    func ribbon(_ line: Line, _ yOff: Double, _ zOff: Double, _ maxIdx: Int, _ maxDistance: Double, allowInvert: Bool) -> [SIMD2<Double>] {
+      let last = min(maxIdx, line.x.count - 1)
+      var xs = Array(line.x[0...last]), ys = Array(line.y[0...last]), zs = Array(line.z[0...last])
+      // one more point, at maxDistance between maxIdx's and the next, so the ribbon ends where it should (float32, as the display's)
+      if maxIdx > 0 && maxIdx < line.x.count - 1 {
+        let x01 = [line.x[maxIdx], line.x[maxIdx + 1]]
+        xs.append(Double(Float(maxDistance)))
+        ys.append(Double(Float(npInterp(maxDistance, x01, [line.y[maxIdx], line.y[maxIdx + 1]]))))
+        zs.append(Double(Float(npInterp(maxDistance, x01, [line.z[maxIdx], line.z[maxIdx + 1]]))))
+      }
       var left: [SIMD2<Double>] = [], right: [SIMD2<Double>] = []
-      for i in 0...min(maxIdx, line.x.count - 1) where line.x[i] >= 0 {
-        let l = project(line.x[i], line.y[i] - yOff, line.z[i] + zOff), r = project(line.x[i], line.y[i] + yOff, line.z[i] + zOff)
+      for i in xs.indices where xs[i] >= 0 {
+        let l = project(xs[i], ys[i] - yOff, zs[i] + zOff), r = project(xs[i], ys[i] + yOff, zs[i] + zOff)
         guard abs(l.z) >= 1e-6, abs(r.z) >= 1e-6 else { continue }
         let a = SIMD2(l.x / l.z, l.y / l.z), b = SIMD2(r.x / r.z, r.y / r.z)
         guard inClip(a), inClip(b) else { continue }
@@ -312,14 +392,16 @@ public enum CommaUI {
       p.x >= -clipMargin && p.x <= width + clipMargin && p.y >= -clipMargin && p.y <= height + clipMargin
     }
 
-    /// On the road behind the lead, following the lane; at most `leadBarLength` long on screen.
-    func leadBar(_ lane: Line, _ d: Double, _ yRel: Double, _ roadHeight: Double) -> [SIMD2<Double>] {
+    /// On the road behind the lead, following the lane, from `edges.0` to `edges.1` across it (the lead's width, or a
+    /// stop's lane); at most `leadBarLength` long on screen.
+    func leadBar(
+      _ lane: Line, _ d: Double, _ yRel: Double, _ roadHeight: Double, edges: (Double, Double) = (-CommaUI.leadBarWidth / 2, CommaUI.leadBarWidth / 2)
+    ) -> [SIMD2<Double>] {
       let xs = [d, d - min(6, 0.25 * d)]
       let at = Diorama.interp(d, lane.x, lane.y)
       let ys = xs.map { Diorama.interp($0, lane.x, lane.y) - at - yRel }
       let zs = xs.map { Diorama.interp($0, lane.x, lane.z) + roadHeight }
-      let half = leadBarWidth / 2
-      var bar = [(xs[0], ys[0] + half, zs[0]), (xs[1], ys[1] + half, zs[1]), (xs[1], ys[1] - half, zs[1]), (xs[0], ys[0] - half, zs[0])].map {
+      var bar = [(xs[0], ys[0] + edges.0, zs[0]), (xs[1], ys[1] + edges.0, zs[1]), (xs[1], ys[1] + edges.1, zs[1]), (xs[0], ys[0] + edges.1, zs[0])].map {
         let p = project($0.0, $0.1, $0.2)
         return SIMD2(p.x / p.z, p.y / p.z)
       }

@@ -4,12 +4,16 @@ Copyright (c) 2026-, Ernie Chu.
 This file is part of diorama and is licensed under the MIT License.
 
 What the comma 4's display draws for made-up model outputs, for the parity test of the app's drawing of the same
-(DioramaKit/Tests/CommaUIParityTests.swift). The display's own ModelRenderer runs here, the copy in
-commasim/vendor/comma_ui, its draw calls recorded with the rest of openpilot stubbed out, as engaged with openpilot
-longitudinal control; and a software rasteriser paints them as its shader does.
+(DioramaKit/Tests/CommaUIParityTests.swift). The display's own ModelRenderer runs here, the copies in
+commasim/vendor/comma_ui (the mici renderer, the base renderer it extends and the status fade it draws through), its
+draw calls recorded with the rest of openpilot stubbed out, as engaged with openpilot longitudinal control; and a
+software rasteriser paints them as its shader does.
 
     uv run python comma_ui_parity.py          # write the fixtures
-    uv run python comma_ui_parity.py --check  # fail where they differ from what the pinned file draws
+    uv run python comma_ui_parity.py --check  # fail where they differ from what the pinned files draw
+
+PINNED holds each vendored file's path in zoompilot and its sha256; zoompilot's tests read it to fail when the display's
+drawing moves on from these copies (openpilot/selfdrive/ui/tests/test_diorama_comma_ui_pin.py there).
 """
 import dataclasses
 import enum
@@ -24,10 +28,14 @@ from pathlib import Path
 
 import numpy as np
 
-PINNED_COMMIT = '2ef7f8522f35a91e017b102673ec31fb9f1cebe7'
-PINNED_SHA256 = '9aebf9a7076a718feb5bf0cfce8e0e2d7ba387c9460fe2569296dc02183771b3'
+PINNED_COMMIT = 'f628686b278675501933c8b9aba9efcb43534648'  # zoompilot main
+PINNED = {
+  'openpilot/selfdrive/ui/mici/onroad/model_renderer.py': '2609f50bdd8f287e2b9812786f0d85962e751b973bf82fa93b3508675d3fb9c5',
+  'openpilot/selfdrive/ui/onroad/model_renderer.py': 'c0f3621c9e74ca3abb8941577a72156eb6d4ef88eb3e3f876a29211e396732bc',
+  'openpilot/selfdrive/ui/mici/onroad/status.py': 'af335ca9f3c825902a3f479de8a1b137d0f6f8def518ca2507e4a8a307d36e67',
+}
 HERE = Path(__file__).parent
-SOURCE = HERE / 'commasim/vendor/comma_ui/model_renderer.py'
+VENDOR = HERE / 'commasim/vendor/comma_ui'
 FIXTURES = HERE / '../DioramaKit/Tests/Fixtures/comma_ui'
 
 W, H, F, CX, CY = 512, 256, 910.0, 256.0, 47.6
@@ -89,35 +97,62 @@ class Blendful:
 
 
 class Sm(dict):
-  recv_frame = types.MappingProxyType({'extrinsicsCalibration': 1, 'modelV2': 1})
+  frame = 1
   updated = types.MappingProxyType({'carParams': False, 'modelV2': True, 'radarState': True})
   valid = types.MappingProxyType({'radarState': True})
 
 
-UI_STATE = Bag(status=Status.ENGAGED, torque_utilization=0.0, started_frame=0, rainbow_path=False, sm=None, params=Bag(get=lambda *a, **k: 0.0))
+# engaged: openpilot steering and on the speed (not MADS lateral-only), the camera offset at its default of 0
+UI_STATE = Bag(
+  status=Status.ENGAGED, torque_utilization=0.0, rainbow_path=False, cruise_engaged=True, sm=None,
+  received_since_started=lambda name: True, params=Bag(get=lambda *a, **k: 0.0))
 
 
 class Widget:
   pass
 
 
+class ChevronMetrics:
+  def __init__(self):
+    pass
+
+
 class ModelRendererSP:
+  """sunnypilot's mixin for the base renderer: steering, so the path's half width is held at 0.9 m."""
+  def __init__(self):
+    self.rainbow_path = None
+    self.chevron_metrics = None
+    self.blendful = Blendful()
+
+  _lateral_active = True
+
+  def _get_path_half_width(self):
+    return 0.9
+
+
+class ModelRendererSPMici:
   def __init__(self):
     self.rainbow_path = None
     self.blendful = Blendful()
 
 
 def load():
-  """The file itself, unchanged; only what it imports is made up."""
-  if hashlib.sha256(SOURCE.read_bytes()).hexdigest() != PINNED_SHA256:
-    sys.exit(f'{SOURCE} is not the file of zoompilot {PINNED_COMMIT}')
+  """The files themselves, unchanged; only what they import from the rest of openpilot is made up."""
+  for path, sha in PINNED.items():
+    if hashlib.sha256((VENDOR / path).read_bytes()).hexdigest() != sha:
+      sys.exit(f'{VENDOR / path} is not the file of zoompilot {PINNED_COMMIT}')
   E2E = 1
   log = Bag(LongitudinalPlan=Bag(LongitudinalPlanSource=Bag(e2e=E2E)))
+
+  def no_color(*a):
+    raise AssertionError('blend_colors: these cases have no steering torque to turn the lane lines orange')
+
   modules = {
-    'pyray': dict(Color=Color, Rectangle=Rectangle),
+    'raylib_nb': dict(Color=Color, Rectangle=Rectangle, get_time=lambda: 0.0),
     'openpilot': {}, 'openpilot.common': {}, 'openpilot.selfdrive': {}, 'openpilot.selfdrive.controls': {}, 'openpilot.selfdrive.locationd': {},
-    'openpilot.selfdrive.ui': {}, 'openpilot.selfdrive.ui.mici': {}, 'openpilot.selfdrive.ui.sunnypilot': {}, 'openpilot.selfdrive.ui.sunnypilot.mici': {},
-    'openpilot.selfdrive.ui.sunnypilot.mici.onroad': {}, 'openpilot.system': {}, 'openpilot.system.ui': {}, 'openpilot.system.ui.lib': {},
+    'openpilot.selfdrive.ui': {}, 'openpilot.selfdrive.ui.onroad': {}, 'openpilot.selfdrive.ui.mici': {}, 'openpilot.selfdrive.ui.sunnypilot': {},
+    'openpilot.selfdrive.ui.sunnypilot.onroad': {}, 'openpilot.selfdrive.ui.sunnypilot.mici': {}, 'openpilot.selfdrive.ui.sunnypilot.mici.onroad': {},
+    'openpilot.system': {}, 'openpilot.system.ui': {}, 'openpilot.system.ui.lib': {},
     'opendbc': {}, 'opendbc.car': {},
     'openpilot.cereal': dict(log=log, messaging=Bag()),
     'opendbc.car.structs': dict(car=Bag()),
@@ -126,19 +161,26 @@ def load():
     'openpilot.selfdrive.controls.radard': dict(RADAR_TO_CAMERA=1.52),
     'openpilot.selfdrive.locationd.calibrationd': dict(HEIGHT_INIT=np.array([HEIGHT])),
     'openpilot.selfdrive.ui.ui_state': dict(ui_state=UI_STATE, UIStatus=Status),
-    'openpilot.selfdrive.ui.mici.onroad': dict(blend_colors=lambda a, b, f: a),
+    'openpilot.selfdrive.ui.mici.onroad': dict(blend_colors=no_color),
     'openpilot.system.ui.lib.application': dict(gui_app=Bag(target_fps=60)),
-    'openpilot.system.ui.lib.shader_polygon': dict(draw_polygon=draw_polygon, Gradient=Gradient),
+    'openpilot.system.ui.lib.polygon': dict(draw_polygon=draw_polygon, Gradient=Gradient),
     'openpilot.system.ui.widgets': dict(Widget=Widget),
-    'openpilot.selfdrive.ui.sunnypilot.mici.onroad.model_renderer': dict(LANE_LINE_COLORS_SP={}, ModelRendererSP=ModelRendererSP),
+    'openpilot.selfdrive.ui.sunnypilot.onroad.model_renderer': dict(ChevronMetrics=ChevronMetrics, ModelRendererSP=ModelRendererSP),
+    'openpilot.selfdrive.ui.sunnypilot.mici.onroad.model_renderer': dict(ModelRendererSP=ModelRendererSPMici),
   }
   for name, attrs in modules.items():
     module = types.ModuleType(name)
     module.__dict__.update(attrs)
     sys.modules[name] = module
-  spec = importlib.util.spec_from_file_location('comma_model_renderer', SOURCE)
-  module = importlib.util.module_from_spec(spec)
-  spec.loader.exec_module(module)
+  # in import order: the status fade and the base renderer under their own names, for the mici renderer to import
+  module = None
+  for path in ('openpilot/selfdrive/ui/mici/onroad/status.py', 'openpilot/selfdrive/ui/onroad/model_renderer.py',
+               'openpilot/selfdrive/ui/mici/onroad/model_renderer.py'):
+    name = path.removesuffix('.py').replace('/', '.')
+    spec = importlib.util.spec_from_file_location(name, VENDOR / path)
+    module = importlib.util.module_from_spec(spec)
+    sys.modules[name] = module
+    spec.loader.exec_module(module)
   return module, E2E
 
 
@@ -209,6 +251,7 @@ def model_v2(h):
   plan = h['plan']
   return Bag(
     position=xyz(plan[:, 0], plan[:, 1], plan[:, 2]),
+    velocity=xyz(plan[:, 3], plan[:, 4], plan[:, 5]),
     acceleration=xyz(plan[:, 6], plan[:, 7], plan[:, 8]),
     laneLines=[xyz(f32(X_IDXS), h['lane_lines'][i, :, 0], h['lane_lines'][i, :, 1]) for i in range(4)],
     laneLineProbs=list(h['lane_lines_prob'][1::2]),
@@ -232,10 +275,10 @@ def draw_case(module, e2e, h, transform):
   UI_STATE.sm = Sm(
     modelV2=model_v2(h), extrinsicsCalibration=Bag(height=[HEIGHT]), carParams=Bag(openpilotLongitudinalControl=True),
     radarState=Bag(leadOne=vision_lead(h, 0), leadTwo=vision_lead(h, 1)), longitudinalPlan=Bag(longitudinalPlanSource=e2e),
-    selfdriveState=Bag(enabled=True, engageable=True), carState=Bag(brakePressed=False))
+    selfdriveState=Bag(enabled=True, engageable=True), carState=Bag(brakePressed=False, vEgo=float(h['plan'][0, 3])))
   renderer._render(rect)
   # the fade is settled: each picture is one frame of the model's, not 60 of the display's
-  for lead in renderer._lead_vehicles:
+  for lead in renderer._lead_bars:
     lead.fade_filter.x = 0.8 if lead.fade_filter.x > 0 else 0.0
   draws.clear()
   renderer._render(rect)
@@ -267,11 +310,67 @@ def lead_sequence(module, e2e, transform):
     UI_STATE.sm = Sm(
       modelV2=model_v2(h), extrinsicsCalibration=Bag(height=[HEIGHT]), carParams=Bag(openpilotLongitudinalControl=True),
       radarState=Bag(leadOne=vision_lead(h, 0), leadTwo=vision_lead(h, 1)), longitudinalPlan=Bag(longitudinalPlanSource=e2e),
-      selfdriveState=Bag(enabled=True, engageable=True), carState=Bag(brakePressed=False))
+      selfdriveState=Bag(enabled=True, engageable=True), carState=Bag(brakePressed=False, vEgo=float(h['plan'][0, 3])))
     for _ in range(3):
       renderer._render(rect)
-    bars = [{'points': numbers(v.bar), 'alpha': int(255 * v.fade_filter.x)} for v in renderer._lead_vehicles if len(v.bar) >= 3 and int(255 * v.fade_filter.x) > 0]
+    bars = [{'points': numbers(v.bar), 'alpha': int(255 * v.fade_filter.x)} for v in renderer._lead_bars if len(v.bar) >= 3 and int(255 * v.fade_filter.x) > 0]
     frames.append({'lead': numbers(h['lead']), 'lead_prob': numbers(h['lead_prob']), 'bars': bars})
+  return {'base': {k: numbers(v) for k, v in base.items()}, 'frames': frames}
+
+
+def stopping(v0, d_stop, n=N):
+  """A plan that slows evenly from v0 to a stop d_stop ahead and stays there: position and velocity, in openpilot's shapes."""
+  a = v0 ** 2 / (2 * d_stop) if d_stop > 0 else 0.0
+  t_stop = v0 / a if a > 0 else 0.0
+  t = np.minimum(T_IDXS, t_stop)
+  plan = np.zeros((n, 15))
+  plan[:, 0] = v0 * t - 0.5 * a * t ** 2
+  plan[:, 3] = np.where(T_IDXS < t_stop, v0 - a * T_IDXS, 0.0)
+  plan[:, 6] = np.where(T_IDXS < t_stop, -a, 0.0)
+  return f32(plan)
+
+
+class SmOnce(Sm):
+  """modelV2 updated on the first of the display's renders of a model frame only, as the display has it."""
+  def __init__(self, first, **kw):
+    super().__init__(**kw)
+    self.updated = types.MappingProxyType({'carParams': False, 'modelV2': first, 'radarState': True})
+
+
+def stop_sequence(module, e2e, transform):
+  """The stop bar over model frames, each rendered 3 times: a stop comes into range and closes in, a lead stops just past it
+  and hides it, the lead goes and it comes back, the lane lines fade and its ends go to the 3.6 m lane, and the car stops."""
+  base = heads(np.random.default_rng(2))
+  renderer = module.ModelRenderer()
+  renderer._longitudinal_control = True
+  renderer.set_transform(transform)
+  rect = Rectangle(0.0, 0.0, float(W), float(H))
+  renderer._rect = rect
+  frames = []
+  v, d = 15.0, 70.0
+  for k in range(140):
+    v, d = max(v - 0.05, 0.0), max(d - v / 20, 0.0)
+    leads = [(0.9, d + 1.52 + 6.0, 0.0)] if 50 <= k < 70 else []
+    probs = (0.8, 0.95, 0.95, 0.7) if k < 90 else (0.1, 0.2, 0.3, 0.0)
+    h = dict(base)
+    h['plan'] = stopping(v, d) if k < 120 else stopping(0.0, 0.0)
+    lead, lead_prob = np.zeros((3, 6, 4)), np.zeros(3)
+    for i, (p, dl, y) in enumerate(leads):
+      lead_prob[i], lead[i, 0, 0], lead[i, 0, 1] = p, dl, y
+    h['lead'], h['lead_prob'] = f32(lead), f32(lead_prob)
+    prob = np.zeros(8)
+    prob[1::2] = probs
+    h['lane_lines_prob'] = f32(prob)
+    for r in range(3):
+      UI_STATE.sm = SmOnce(
+        r == 0, modelV2=model_v2(h), extrinsicsCalibration=Bag(height=[HEIGHT]), carParams=Bag(openpilotLongitudinalControl=True),
+        radarState=Bag(leadOne=vision_lead(h, 0), leadTwo=vision_lead(h, 1)), longitudinalPlan=Bag(longitudinalPlanSource=e2e),
+        selfdriveState=Bag(enabled=True, engageable=True), carState=Bag(brakePressed=False, vEgo=float(h['plan'][0, 3])))
+      renderer._render(rect)
+    bars = [{'points': numbers(b.bar), 'alpha': int(255 * b.fade_filter.x)} for b in (*renderer._lead_bars, renderer._stop_point)
+            if len(b.bar) >= 3 and int(255 * b.fade_filter.x) > 0]
+    frames.append({'plan': numbers(h['plan']), 'lead': numbers(h['lead']), 'lead_prob': numbers(h['lead_prob']),
+                   'lane_lines_prob': numbers(h['lane_lines_prob']), 'bars': bars, 'stop': renderer._stop_point.visible})
   return {'base': {k: numbers(v) for k, v in base.items()}, 'frames': frames}
 
 
@@ -339,6 +438,10 @@ def main():
       rasters[name] = raster(polygons).tobytes()
 
   out['lead_sequence'] = lead_sequence(module, e2e, transform)
+  out['stop_sequence'] = stop_sequence(module, e2e, transform)
+  shown = [f['stop'] for f in out['stop_sequence']['frames']]
+  if not any(shown) or all(shown):
+    sys.exit('stop_sequence: the stop bar should come and go')
   files = {'golden.json': json.dumps(out, separators=(',', ':')).encode()}
   for name, data in rasters.items():
     deflate = zlib.compressobj(9, zlib.DEFLATED, -15)

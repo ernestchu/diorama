@@ -911,7 +911,12 @@
 
   // ---- the comma 4 display's drawing of the driving model, as CommaUI.swift ports it from zoompilot's model_renderer.py
   // and CommaUIParityTests holds both to it: engaged, with openpilot longitudinal, no torque, the model's own leads.
-  const COMMA = { CLIP: 500, MIN_DRAW: 10, MAX_DRAW: 100, BAR_LENGTH: 12, BAR_WIDTH: 1.8, RADAR: 1.52, HEIGHT: 1.22, PROB: 0.5, OPACITY: 0.8, RENDERS: 3 };
+  const COMMA = {
+    CLIP: 500, MIN_DRAW: 10, MAX_DRAW: 100, BAR_LENGTH: 10, BAR_WIDTH: 1.8, RADAR: 1.52, HEIGHT: 1.22, PROB: 0.5, OPACITY: 0.8, RENDERS: 3,
+    // the stop bar: a planned speed under STOP_SPEED is a stop, shown from STOP_APPEAR out, hidden by a lead within STOP_LEAD_MARGIN
+    // past it, its ends at the lane lines the model is LANE_PROB sure of, else at LANE_EDGES
+    STOP_SPEED: 1, STOP_APPEAR: [8, 50], STOP_LEAD_MARGIN: 15, LANE_EDGES: [-1.8, 1.8], LANE_PROB: 0.5,
+  };
 
   // modelV2's fields the display reads, as modeld fills them; null without all of them
   function commaModel(o) {
@@ -922,7 +927,7 @@
     const column = (c) => range((i) => plan(o.plan, i, c));
     const line = (l, i) => ({ x: X_IDXS, y: range((j) => lane(l, i, j, 0)), z: range((j) => lane(l, i, j, 1)) });
     return {
-      position: { x: column(0), y: column(1), z: column(2) }, accelerationX: column(6),
+      position: { x: column(0), y: column(1), z: column(2) }, velocityX: column(3), accelerationX: column(6),
       laneLines: [0, 1, 2, 3].map((i) => line(o.lane_lines, i)), laneLineProbs: [0, 1, 2, 3].map((i) => o.lane_lines_prob[2 * i + 1]),
       roadEdges: [0, 1].map((i) => line(o.road_edges, i)), roadEdgeStds: [0, 1].map((i) => lane(o.road_edges_stds, i, 0, 0)),
       leads: [0, 1].map((i) => ({ prob: o.lead_prob[i], x: leadAt(o.lead, i, 0, 0), y: leadAt(o.lead, i, 0, 1) })),
@@ -933,12 +938,20 @@
 
   function commaProject(T, x, y, z) { return [T[0] * x + T[1] * y + T[2] * z, T[3] * x + T[4] * y + T[5] * z, T[6] * x + T[7] * y + T[8] * z]; }
 
-  function commaRibbon(T, W, H, line, yOff, zOff, maxIdx, allowInvert) {
+  function commaRibbon(T, W, H, line, yOff, zOff, maxIdx, maxDistance, allowInvert) {
     const m = COMMA.CLIP, inClip = (p) => p[0] >= -m && p[0] <= W + m && p[1] >= -m && p[1] <= H + m;
+    const xs = line.x.slice(0, maxIdx + 1), ys = line.y.slice(0, maxIdx + 1), zs = line.z.slice(0, maxIdx + 1);
+    // one more point, at maxDistance between maxIdx's and the next, so the ribbon ends where it should
+    if (maxIdx > 0 && maxIdx < line.x.length - 1) {
+      const x01 = [line.x[maxIdx], line.x[maxIdx + 1]];
+      xs.push(Math.fround(maxDistance));
+      ys.push(Math.fround(commaInterp(maxDistance, x01, [line.y[maxIdx], line.y[maxIdx + 1]])));
+      zs.push(Math.fround(commaInterp(maxDistance, x01, [line.z[maxIdx], line.z[maxIdx + 1]])));
+    }
     let left = [], right = [];
-    for (let i = 0; i <= Math.min(maxIdx, line.x.length - 1); i++) {
-      if (!(line.x[i] >= 0)) continue;
-      const l = commaProject(T, line.x[i], line.y[i] - yOff, line.z[i] + zOff), r = commaProject(T, line.x[i], line.y[i] + yOff, line.z[i] + zOff);
+    for (let i = 0; i < xs.length; i++) {
+      if (!(xs[i] >= 0)) continue;
+      const l = commaProject(T, xs[i], ys[i] - yOff, zs[i] + zOff), r = commaProject(T, xs[i], ys[i] + yOff, zs[i] + zOff);
       if (Math.abs(l[2]) < 1e-6 || Math.abs(r[2]) < 1e-6) continue;
       const a = [l[0] / l[2], l[1] / l[2]], b = [r[0] / r[2], r[1] / r[2]];
       if (!inClip(a) || !inClip(b)) continue;
@@ -954,10 +967,20 @@
     return left.concat(right.reverse());
   }
 
-  function commaLeadBar(T, lane_, d, yRel, roadHeight) {
+  // numpy's interp: clamped at the ends, and over two equal xs the second y
+  function commaInterp(x, xp, fp) {
+    const n = xp.length;
+    if (x < xp[0]) return fp[0];
+    if (x >= xp[n - 1]) return fp[n - 1];
+    for (let i = 0; i < n - 1; i++) if (x >= xp[i] && x < xp[i + 1]) return fp[i] + (fp[i + 1] - fp[i]) * (x - xp[i]) / (xp[i + 1] - xp[i]);
+    return fp[n - 1];
+  }
+
+  // on the road behind the lead, following the lane, from edges[0] to edges[1] across it (the lead's width, or a stop's lane)
+  function commaLeadBar(T, lane_, d, yRel, roadHeight, edges = [-COMMA.BAR_WIDTH / 2, COMMA.BAR_WIDTH / 2]) {
     const xs = [d, d - Math.min(6, 0.25 * d)], at = interp(d, lane_.x, lane_.y);
-    const ys = xs.map((x) => interp(x, lane_.x, lane_.y) - at - yRel), zs = xs.map((x) => interp(x, lane_.x, lane_.z) + roadHeight), half = COMMA.BAR_WIDTH / 2;
-    const bar = [[xs[0], ys[0] + half, zs[0]], [xs[1], ys[1] + half, zs[1]], [xs[1], ys[1] - half, zs[1]], [xs[0], ys[0] - half, zs[0]]].map(([x, y, z]) => {
+    const ys = xs.map((x) => interp(x, lane_.x, lane_.y) - at - yRel), zs = xs.map((x) => interp(x, lane_.x, lane_.z) + roadHeight);
+    const bar = [[xs[0], ys[0] + edges[0], zs[0]], [xs[1], ys[1] + edges[0], zs[1]], [xs[1], ys[1] + edges[1], zs[1]], [xs[0], ys[0] + edges[1], zs[0]]].map(([x, y, z]) => {
       const p = commaProject(T, x, y, z);
       return [p[0] / p[2], p[1] / p[2]];
     });
@@ -982,32 +1005,84 @@
     update(v) { this.x = this.initialized ? (1 - this.alpha) * this.x + this.alpha * v : v; this.initialized = true; return this.x; }
   }
 
+  const commaHysteresis = (x, state, on, off) => x > on || (state && x > off);
+
+  // Where the plan stops with no lead to stop behind, e.g. at a stop sign or a red light: the display's StopPoint. The
+  // stop comes and goes frame to frame, so it has to hold before it shows and before it hides; between model frames it
+  // moves with the car, the plan's speed now standing in for carState's.
+  class CommaStopPoint {
+    constructor() {
+      this.bar = []; this.d = 0; this.plannedD = null; this.visible = false;
+      this.planning = false; this.planningFilter = new CommaFilter(0.3, true);
+      this.behindLead = false; this.behindLeadFilter = new CommaFilter(0.3, true);
+      this.edges = COMMA.LANE_EDGES.map((y) => { const f = new CommaFilter(0.2, false); f.x = y; return f; });
+      this.fade = new CommaFilter(0.1, true);
+    }
+    static planned(m) {
+      const vx = m.velocityX, px = m.position.x, i = vx.findIndex((v) => v < COMMA.STOP_SPEED);
+      if (i < 0 || vx.length !== px.length) return null;
+      return i === 0 ? 0 : commaInterp(COMMA.STOP_SPEED, [vx[i], vx[i - 1]], [px[i], px[i - 1]]);
+    }
+    update(m, modelUpdated, vEgo, leadDistances) {
+      this.d = Math.max(this.d - vEgo / 60, 0);
+      if (modelUpdated) {
+        this.plannedD = CommaStopPoint.planned(m);
+        if (this.plannedD !== null) this.d = this.visible ? this.d + 0.3 * (this.plannedD - this.d) : this.plannedD;
+      }
+      this.planning = commaHysteresis(this.planningFilter.update(this.plannedD !== null ? 1 : 0), this.planning, 0.6, 0.2);
+      // the lead bar already shows stopping behind a lead
+      const behind = leadDistances.some((d) => d < this.d + COMMA.RADAR + COMMA.STOP_LEAD_MARGIN);
+      this.behindLead = commaHysteresis(this.behindLeadFilter.update(behind ? 1 : 0), this.behindLead, 0.6, 0.1);
+      // out ahead, not right in front of the car while creeping or stopped, nor so far that a lead may not be seen yet
+      const appear = COMMA.STOP_APPEAR[0] < this.d && this.d < COMMA.STOP_APPEAR[1];
+      this.visible = this.planning && !this.behindLead && (this.visible || appear);
+      return this.visible;
+    }
+  }
+
   // The display's lead bars over time: each model frame is COMMA.RENDERS of its frames, the bars' distance, offset and
-  // opacity lagging as its FirstOrderFilters do. A lead that goes fades out where its bar last was.
+  // opacity lagging as its FirstOrderFilters do. A lead that goes fades out where its bar last was. After them, the stop
+  // bar, across the lane where the plan stops with no lead (CommaStopPoint).
   class CommaLeadBars {
     constructor() {
       this.vehicles = [0, 1].map(() => ({ d: new CommaFilter(0.2, false), y: new CommaFilter(0.2, false), fade: new CommaFilter(0.1, true), bar: [] }));
+      this.stop = new CommaStopPoint();
     }
     advance(m, T, W, H, roadHeight, renders) {
-      const leads = commaLeads(m);
+      const leads = commaLeads(m), lane_ = m.position, hasLane = lane_.x.length > 0;
       for (let r = 0; r < renders; r++) {
         this.vehicles.forEach((v, i) => {
           if (i >= leads.length) return;
-          const lead = leads[i], visible = lead.present && lead.d < COMMA.MAX_DRAW && m.position.x.length > 0;
+          const lead = leads[i], visible = lead.present && lead.d < COMMA.MAX_DRAW && hasLane;
           // snap to a new vehicle instead of sliding over
           if (!visible || Math.abs(lead.y - v.y.x) > 3) v.d.initialized = v.y.initialized = false;
           v.fade.update(visible ? COMMA.OPACITY : 0);
-          if (visible) v.bar = commaLeadBar(T, m.position, v.d.update(lead.d), v.y.update(lead.y), roadHeight);
+          if (visible) v.bar = commaLeadBar(T, lane_, v.d.update(lead.d), v.y.update(lead.y), roadHeight);
         });
+        // the model's word is new on the first of the display's frames of it
+        const leadDistances = leads.filter((l) => l.present).map((l) => l.d);
+        const planning = this.stop.update(m, r === 0, m.velocityX.length ? m.velocityX[0] : 0, leadDistances);
+        const dStop = this.stop.d + COMMA.RADAR, visible = planning && dStop < COMMA.MAX_DRAW && hasLane;
+        // brighter than a lead bar, to tell them apart
+        this.stop.fade.update(visible ? COMMA.OPACITY + 0.2 : 0);
+        if (visible) {
+          const pathY = commaInterp(dStop, lane_.x, lane_.y);
+          const edges = this.stop.edges.map((f, j) => {
+            const line = m.laneLines[j + 1], prob = m.laneLineProbs[j + 1];
+            return f.update(prob > COMMA.LANE_PROB && line.x.length ? commaInterp(dStop, line.x, line.y) - pathY : COMMA.LANE_EDGES[j]);
+          });
+          this.stop.bar = commaLeadBar(T, lane_, dStop, 0, roadHeight, edges);
+        }
       }
     }
     alpha(v) { return Math.floor(clamp(255 * v.fade.x, 0, 255)); }
-    // each bar while any of it shows, the far edge's middle on the road: where that lead's rear is
+    // each lead's bar while any of it shows, the far edge's middle on the road: where that lead's rear is
     get leads() {
       return this.vehicles.flatMap((v, index) => (v.bar.length >= 3 && this.alpha(v) > 0 ? [{ index, x: v.d.x, y: -v.y.x }] : []));
     }
+    // the bars as they are now, in drawing order: the leads', then the stop's
     get polygons() {
-      return this.vehicles.filter((v) => v.bar.length >= 3 && this.alpha(v) > 0).map((v) => ({ points: v.bar, color: [255, 255, 255, this.alpha(v)] }));
+      return [...this.vehicles, this.stop].filter((v) => v.bar.length >= 3 && this.alpha(v) > 0).map((v) => ({ points: v.bar, color: [255, 255, 255, this.alpha(v)] }));
     }
   }
 
@@ -1069,19 +1144,17 @@
     };
     let maxDistance = clamp(lastX, COMMA.MIN_DRAW, COMMA.MAX_DRAW);
     const maxIdx = lengthIdx(m.laneLines[0].x, maxDistance);
-    // the factor stays at 0.16 from the second line on: the fourth line and the road edges have it too
-    let widthFactor = 0.12;
+    const LANE_WIDTHS = [0.12, 0.16, 0.16, 0.16], EDGE_WIDTH = 0.16;
     m.laneLines.forEach((line, i) => {
-      if (i === 1 || i === 2) widthFactor = 0.16;
-      add(commaRibbon(T, W, H, line, widthFactor * m.laneLineProbs[i], 0, maxIdx, true), laneColor(m.laneLineProbs[i], i === 1 || i === 2));
+      add(commaRibbon(T, W, H, line, LANE_WIDTHS[i] * m.laneLineProbs[i], 0, maxIdx, maxDistance, true), laneColor(m.laneLineProbs[i], i === 1 || i === 2));
     });
-    m.roadEdges.forEach((edge, i) => add(commaRibbon(T, W, H, edge, widthFactor, 0, maxIdx, true), laneColor(1 - m.roadEdgeStds[i], m.laneLineProbs[i + 1] < 0.25)));
+    m.roadEdges.forEach((edge, i) => add(commaRibbon(T, W, H, edge, EDGE_WIDTH, 0, maxIdx, maxDistance, true), laneColor(1 - m.roadEdgeStds[i], m.laneLineProbs[i + 1] < 0.25)));
     // radarState.leadOne, as radard makes it from the model's lead
     if (m.leads.length && m.leads[0].prob > COMMA.PROB) {
       const d = (m.leads[0].x - COMMA.RADAR) * 2;
       maxDistance = clamp(d - Math.min(d * 0.35, 10), 0, maxDistance);
     }
-    const path = commaRibbon(T, W, H, m.position, 0.9, roadHeight, lengthIdx(m.position.x, maxDistance), false);
+    const path = commaRibbon(T, W, H, m.position, 0.9, roadHeight, lengthIdx(m.position.x, maxDistance), maxDistance, false);
     add(path, commaPathFill(path, m.accelerationX, H));
     if (leadBars) return out.concat(leadBars);
     for (const lead of commaLeads(m)) {

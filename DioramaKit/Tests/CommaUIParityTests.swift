@@ -160,6 +160,32 @@ private func expectClose(_ a: CommaUI.RGBA, _ b: CommaUI.RGBA, _ what: String) {
   #expect(sawBar && sawFading)
 }
 
+/// The stop bar over time, against the display's StopPoint: a stop comes into range and closes in, a lead stopping just
+/// past it hides it, it comes back, the lane lines fade and its ends go to a 3.6 m lane, and the car stops.
+@Test func commaStopBarHoldsAsTheDisplayDoes() throws {
+  let g = Golden.shared.json, sequence = g["stop_sequence"] as! [String: Any], base = sequence["base"] as! [String: [Double]]
+  var bars = CommaUI.LeadBars(), sawStop = false, sawNone = false
+  for (k, frame) in (sequence["frames"] as! [[String: Any]]).enumerated() {
+    var heads = base
+    for key in ["plan", "lead", "lead_prob", "lane_lines_prob"] { heads[key] = (frame[key] as! [Double]) }
+    let model = try #require(CommaUI.Model(Golden.outputs(heads)))
+    bars.advance(
+      model, transform: g["transform"] as! [Double], width: g["width"] as! Double, height: g["height"] as! Double, roadHeight: g["road_height"] as! Double,
+      renders: CommaUI.LeadBars.rendersPerFrame)
+    let want = frame["bars"] as! [[String: Any]], got = bars.polygons
+    try #require(got.count == want.count, "frame \(k): \(got.count) bars, the display has \(want.count)")
+    for (g, w) in zip(got, want) {
+      let flat = w["points"] as! [Double]
+      try #require(g.points.count * 2 == flat.count)
+      for (j, p) in g.points.enumerated() { #expect(abs(p.x - flat[2 * j]) < 0.1 && abs(p.y - flat[2 * j + 1]) < 0.1, "frame \(k) point \(j): \(p) vs \(flat[2 * j]), \(flat[2 * j + 1])") }
+      guard case .solid(let c) = g.fill else { Issue.record("frame \(k): a bar with a gradient"); continue }
+      #expect(abs(Int(c.a) - (w["alpha"] as! Int)) <= 1, "frame \(k): alpha \(c.a) vs \(w["alpha"]!)")
+    }
+    if frame["stop"] as! Bool { sawStop = true } else { sawNone = true }
+  }
+  #expect(sawStop && sawNone)
+}
+
 /// The page's copy of the drawing (web/page/diorama-engine.js, run as it is) against the same recordings of the display.
 @Test func thePagesCommaDrawingMatchesTheDisplay() throws {
   let root = URL(filePath: #filePath).deletingLastPathComponent().appending(path: "../..").standardized
@@ -191,11 +217,16 @@ private func expectClose(_ a: CommaUI.RGBA, _ b: CommaUI.RGBA, _ what: String) {
         });
       }
       for (const [name, c] of Object.entries(g.cases)) same(name, E.commaPolygons(E.commaModel(out(c.heads)), g.transform, g.width, g.height, g.road_height), c.draws);
-      const bars = new E.CommaLeadBars();
-      g.lead_sequence.frames.forEach((f, k) => {
-        bars.advance(E.commaModel(out({ ...g.lead_sequence.base, lead: f.lead, lead_prob: f.lead_prob })), g.transform, g.width, g.height, g.road_height, E.COMMA.RENDERS);
-        same(`bars ${k}`, bars.polygons, f.bars);
-      });
+      for (const seq of ['lead_sequence', 'stop_sequence']) {
+        const bars = new E.CommaLeadBars();
+        g[seq].frames.forEach((f, k) => {
+          const h = { ...g[seq].base, lead: f.lead, lead_prob: f.lead_prob };
+          if (f.plan) h.plan = f.plan;
+          if (f.lane_lines_prob) h.lane_lines_prob = f.lane_lines_prob;
+          bars.advance(E.commaModel(out(h)), g.transform, g.width, g.height, g.road_height, E.COMMA.RENDERS);
+          same(`${seq} ${k}`, bars.polygons, f.bars);
+        });
+      }
       return bad.length + ' ' + bad.slice(0, 8).join('; ');
     })()
     """)?.toString()
