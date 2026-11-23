@@ -621,6 +621,7 @@
       return;
     }
     renderer.followHeading = !setup && params.get('still') === null;  // a still frame and the setup: the rigid camera
+    renderer.chevrons = params.get('still') === null;  // a still frame: no time for the path's chevrons to flow in
     if (params.get('still') === null) await loadCamera();  // a still frame: the page's own cameras, as the app's
     if (setup) {
       // no drive and no footage: the camera is set over a scene of its own

@@ -1,0 +1,167 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Chevron Lab</title>
+<style>
+  :root { --bg: #111214; --panel: #1b1c1f; --text: #e8e8ea; --dim: #9a9ca3; --line: #2c2d31; }
+  * { box-sizing: border-box; }
+  body { margin: 0; background: var(--bg); color: var(--text); font: 13px/1.4 -apple-system, system-ui, sans-serif;
+         display: grid; grid-template-columns: 300px 1fr; height: 100vh; }
+  aside { background: var(--panel); border-right: 1px solid var(--line); padding: 16px; overflow-y: auto; }
+  h1 { font-size: 15px; margin: 0 0 12px; }
+  h2 { font-size: 11px; letter-spacing: .08em; text-transform: uppercase; color: var(--dim); margin: 18px 0 8px; }
+  label { display: grid; grid-template-columns: 1fr auto; gap: 2px 8px; margin-bottom: 10px; }
+  label input[type=range] { grid-column: 1 / -1; width: 100%; }
+  label output { color: var(--dim); font-variant-numeric: tabular-nums; }
+  .row { display: flex; gap: 8px; align-items: center; margin-bottom: 10px; }
+  .row input[type=color] { width: 40px; height: 28px; border: none; background: none; padding: 0; }
+  button { background: #2b2d33; color: var(--text); border: 1px solid #3a3c43; border-radius: 6px; padding: 6px 10px; cursor: pointer; }
+  button.on { background: #2f5fd0; border-color: #2f5fd0; }
+  pre { background: #0d0e10; border: 1px solid var(--line); border-radius: 6px; padding: 10px; font-size: 11px; white-space: pre-wrap; user-select: all; }
+  main { position: relative; overflow: hidden; display: flex; align-items: flex-end; justify-content: center; perspective: 700px; }
+  canvas { transform-origin: 50% 100%; }
+  @media (max-width: 700px) { body { grid-template-columns: 1fr; grid-template-rows: auto 60vh; } }
+</style>
+</head>
+<body>
+<aside>
+  <h1>Chevron Lab</h1>
+  <div class="row"><button id="dark" class="on">Dark</button><button id="light">Light</button></div>
+
+  <h2>Chevron</h2>
+  <label>Brightness (V in HSV) <output id="valueOut"></output><input type="range" id="value" min="0" max="1" step="0.01" value="1"></label>
+  <div class="row"><span id="swatch" style="width:40px;height:20px;border-radius:4px"></span><span>colour: the path's hue and saturation</span></div>
+  <div class="row" style="color:var(--dim)"><output id="colorOut"></output></div>
+  <label>Opacity <output id="opacityOut"></output><input type="range" id="opacity" min="0" max="1" step="0.01" value="0.6"></label>
+  <label>Tip angle <output id="angleOut"></output><input type="range" id="angle" min="20" max="170" step="1" value="62.5"></label>
+  <label>Thickness (m) <output id="thickOut"></output><input type="range" id="thick" min="0.1" max="1.5" step="0.05" value="0.4"></label>
+  <label>Spacing (m) <output id="spacingOut"></output><input type="range" id="spacing" min="1" max="6" step="0.1" value="2.4"></label>
+  <div class="row" style="color:var(--dim)">Faded across exactly as the path: 0.85 m each side, solid over the middle 35%.</div>
+
+  <h2>Motion</h2>
+  <label>Acceleration (m/s²) <output id="accelOut"></output><input type="range" id="accel" min="-4" max="4" step="0.05" value="1.2"></label>
+  <label>Flow per m/s² (m/s) <output id="rateOut"></output><input type="range" id="rate" min="0.5" max="6" step="0.1" value="2"></label>
+
+  <h2>Scene</h2>
+  <div class="row"><input type="color" id="pathColor" value="#3885ff"><span>path colour</span></div>
+  <label>Path length (m) <output id="lengthOut"></output><input type="range" id="length" min="4" max="30" step="1" value="14"></label>
+  <label>Camera tilt (°) <output id="tiltOut"></output><input type="range" id="tilt" min="0" max="75" step="1" value="55"></label>
+  <label>Zoom <output id="zoomOut"></output><input type="range" id="zoom" min="0.5" max="3" step="0.05" value="1.4"></label>
+
+  <h2>For DioramaRenderer.swift</h2>
+  <pre id="swift"></pre>
+</aside>
+<main><canvas id="c"></canvas></main>
+
+<script>
+const $ = id => document.getElementById(id);
+const THEMES = {
+  dark:  { ground: [0.135, 0.14, 0.15], road: [0.235, 0.24, 0.255], paint: [0.86, 0.86, 0.87], edge: [1, 0.22, 0.22], car: '#c9cacf' },
+  light: { ground: [0.83, 0.835, 0.84], road: [0.955, 0.955, 0.96], paint: [0.60, 0.60, 0.62], edge: [1, 0.30, 0.30], car: '#b7b8be' },
+};
+let theme = THEMES.dark;
+for (const t of ['dark', 'light']) $(t).onclick = () => {
+  theme = THEMES[t];
+  $('dark').classList.toggle('on', t === 'dark'); $('light').classList.toggle('on', t === 'light');
+};
+
+const smooth = (e0, e1, x) => { const t = Math.min(Math.max((x - e0) / (e1 - e0), 0), 1); return t * t * (3 - 2 * t); };
+const rgb = a => `rgb(${a.map(v => Math.round(v * 255)).join(',')})`;
+const hex2 = h => [1, 3, 5].map(i => parseInt(h.slice(i, i + 2), 16) / 255);
+const f = (v, n = 3) => (+v).toFixed(n).replace(/\.?0+$/, '') || '0';
+
+// road metres -> canvas: x forward (up the canvas), y right
+const PX = 36, X0 = -6, X1 = 30, Y = 7;
+const c = $('c'), g = c.getContext('2d');
+c.width = 2 * Y * PX; c.height = (X1 - X0) * PX;
+const toC = (x, y) => [(y + Y) * PX, (X1 - x) * PX];
+const layer = () => { const l = document.createElement('canvas'); l.width = c.width; l.height = c.height; return l; };
+const pathL = layer();
+
+const EGO_FRONT = 1.6, EGO_REAR = -3.1, PATH_HALF = 0.85;
+let flow = 0, flowAccel = 1.2, last = performance.now();
+
+function across(ctx, half, core) {
+  // the ribbon's soft profile across: solid to core*half, out to nothing at half
+  const [x0] = toC(0, -half), [x1] = toC(0, half);
+  const gr = ctx.createLinearGradient(x0, 0, x1, 0), k = (1 - core) / 2;
+  gr.addColorStop(0, 'rgba(0,0,0,0)'); gr.addColorStop(k, '#000'); gr.addColorStop(1 - k, '#000'); gr.addColorStop(1, 'rgba(0,0,0,0)');
+  return gr;
+}
+
+function frame(now) {
+  const dt = Math.min((now - last) / 1000, 0.1); last = now;
+  const p = Object.fromEntries(['value', 'opacity', 'angle', 'thick', 'spacing', 'accel', 'rate', 'length', 'tilt', 'zoom'].map(k => [k, +$(k).value]));
+  for (const k in p) $(k + 'Out').textContent = f(p[k], 2);
+  const path = hex2($('pathColor').value), pv = Math.max(...path, 1e-6), chev = path.map(v => v / pv * p.value);
+  p.half = PATH_HALF; p.core = 0.35;
+  $('swatch').style.background = rgb(chev);
+  $('colorOut').textContent = chev.map(v => f(v)).join(', ');
+  c.style.transform = `rotateX(${p.tilt}deg)`;
+  c.style.width = `${c.parentElement.clientWidth * p.zoom}px`;
+
+  flowAccel += (p.accel - flowAccel) * (1 - Math.exp(-dt / 0.25));
+  const a = Math.max(-4, Math.min(4, flowAccel)), dir = a >= 0 ? 1 : -1;
+  flow = (flow + p.rate * a * dt) % p.spacing;
+  const strength = smooth(0.12, 0.7, Math.abs(a));
+  const length = p.half / Math.tan(p.angle / 2 * Math.PI / 180);
+
+  // road
+  g.fillStyle = rgb(theme.ground); g.fillRect(0, 0, c.width, c.height);
+  g.fillStyle = rgb(theme.road); { const [l] = toC(0, -5.4), [r] = toC(0, 5.4); g.fillRect(l, 0, r - l, c.height); }
+  for (const y of [-1.8, 1.8]) { g.fillStyle = rgb(theme.paint); const [px] = toC(0, y); g.fillRect(px - 0.065 * PX, 0, 0.13 * PX, c.height); }
+  for (const y of [-5.4, 5.4]) {
+    const [px] = toC(0, y); g.fillStyle = `rgba(${theme.edge.map(v => v * 255)},0.35)`; g.fillRect(px - 0.4 * PX, 0, 0.8 * PX, c.height);
+    g.fillStyle = rgb(theme.edge); g.fillRect(px - 0.055 * PX, 0, 0.11 * PX, c.height);
+  }
+
+  // the path and its chevrons as one: the path's colour with the chevrons painted into it (opacity: how much of
+  // their colour they take), then the path's own fades over both, across and along. A chevron at the path's
+  // colour is the path.
+  const start = EGO_FRONT - 0.5, total = p.length, tail = Math.min(5, 0.5 * total);
+  const pc = pathL.getContext('2d');
+  pc.globalCompositeOperation = 'source-over'; pc.globalAlpha = 1; pc.clearRect(0, 0, c.width, c.height);
+  pc.fillStyle = rgb(path);
+  { const [l, top] = toC(start + total, -PATH_HALF), [r, bot] = toC(start, PATH_HALF); pc.fillRect(l, top, r - l, bot - top); }
+  pc.globalCompositeOperation = 'source-atop'; pc.fillStyle = rgb(chev);
+  if (strength > 0.01) {
+    for (let s = flow < 0 ? flow + p.spacing : flow; s < total; s += p.spacing) {
+      const x = start + s, alpha = p.opacity * strength * smooth(0.3, 2, s);
+      if (alpha <= 0.005) continue;
+      const tip = x + dir * length / 2, back = tip - dir * length;
+      pc.globalAlpha = alpha;
+      pc.beginPath();
+      for (const [px, py] of [[tip, 0], [back, p.half], [back - dir * p.thick, p.half], [tip - dir * p.thick, 0],
+                              [back - dir * p.thick, -p.half], [back, -p.half]]) pc.lineTo(...toC(px, py));
+      pc.closePath(); pc.fill();
+    }
+  }
+  pc.globalAlpha = 1; pc.globalCompositeOperation = 'destination-in';
+  pc.fillStyle = across(pc, PATH_HALF, 0.35); pc.fillRect(0, 0, c.width, c.height);
+  { const [, y0] = toC(start + total, 0), [, y1] = toC(start, 0), gr = pc.createLinearGradient(0, y1, 0, y0);
+    for (let i = 0; i <= 24; i++) { const s = total * i / 24, x = start + s;
+      gr.addColorStop(i / 24, `rgba(0,0,0,${0.8 * (1 - smooth(12, 70, x)) * smooth(0, tail, total - s)})`); }
+    pc.fillStyle = gr; pc.fillRect(0, 0, c.width, c.height); }
+  g.drawImage(pathL, 0, 0);
+
+  // the ego car, from above
+  { const [l, top] = toC(EGO_FRONT, -0.95), [r, bot] = toC(EGO_REAR, 0.95);
+    g.fillStyle = 'rgba(0,0,0,0.35)'; g.beginPath(); g.roundRect(l - 6, top - 4, r - l + 12, bot - top + 12, 30); g.fill();
+    g.fillStyle = theme.car; g.beginPath(); g.roundRect(l, top, r - l, bot - top, 28); g.fill();
+    g.fillStyle = '#55575e'; g.beginPath(); g.roundRect(l + 10, top + 0.9 * PX, r - l - 20, 2.2 * PX, 16); g.fill();
+    g.fillStyle = '#e0242a'; g.fillRect(l + 6, bot - 10, 22, 6); g.fillRect(r - 28, bot - 10, 22, 6); }
+
+  $('swift').textContent =
+`// the path's hue and saturation at V = ${f(p.value, 2)}
+let rgb = theme.path * ${f(p.value / pv, 3)}, half = 0.85, length = ${f(length, 2)}, thick = ${f(p.thick, 2)}, lift = 0.035
+let spacing = ${f(p.spacing, 2)}
+flow = (flow + ${f(p.rate, 2)} * a * dt)...
+// painted into the path's colour, not over it: mix(path, rgb, ${f(p.opacity, 2)} * strength), then the path's alpha`;
+  requestAnimationFrame(frame);
+}
+requestAnimationFrame(frame);
+</script>
+</body>
+</html>

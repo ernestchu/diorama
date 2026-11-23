@@ -2,6 +2,7 @@
   import Foundation
   import DioramaCore
   import Metal
+  import QuartzCore
   import simd
 
   /// Each view's camera, set by hand in the apps' Settings and kept by each app: what
@@ -185,10 +186,13 @@
     /// never shakes the whole picture.
     var followHeading = false
     private var heading = HeadingSpring()
+    /// The chevrons on the planned path: how far along they have flowed (m), the acceleration they go by, smoothed,
+    /// and when they last moved.
+    private var flow = 0.0, flowAccel = 0.0, flowAt: CFTimeInterval?
     /// How far either side of a road edge the road's surface fades out, m.
     static let roadFeather = 0.7
     private let queue: MTLCommandQueue
-    private let sky, ground, decal, mesh, maskRoad, maskPaint: MTLRenderPipelineState
+    private let sky, ground, decal, shade, mesh, maskRoad, maskPaint: MTLRenderPipelineState
     private let depthWrite, depthTestOnly, depthOff: MTLDepthStencilState
     private let mipSampler, linearSampler: MTLSamplerState
     private let maskTexture: MTLTexture
@@ -208,7 +212,7 @@
       guard let queue = device.makeCommandQueue(), let library = try? device.makeLibrary(source: Self.shaders, options: nil) else { return nil }
       self.queue = queue
       func pipeline(
-        _ v: String, _ f: String, blend: Bool = false, mask: MTLColorWriteMask = .all, color: MTLPixelFormat = DioramaRenderer.colorFormat,
+        _ v: String, _ f: String, blend: Bool = false, shade: Bool = false, mask: MTLColorWriteMask = .all, color: MTLPixelFormat = DioramaRenderer.colorFormat,
         samples: Int = DioramaRenderer.sampleCount, depth: Bool = true
       ) -> MTLRenderPipelineState? {
         let d = MTLRenderPipelineDescriptor()
@@ -223,15 +227,25 @@
           d.colorAttachments[0].sourceAlphaBlendFactor = .sourceAlpha
           d.colorAttachments[0].destinationAlphaBlendFactor = .oneMinusSourceAlpha
         }
+        if shade {
+          // takes rgb * a from what is drawn already, and leaves its alpha
+          d.colorAttachments[0].isBlendingEnabled = true
+          d.colorAttachments[0].rgbBlendOperation = .reverseSubtract
+          d.colorAttachments[0].sourceRGBBlendFactor = .sourceAlpha
+          d.colorAttachments[0].destinationRGBBlendFactor = .one
+          d.colorAttachments[0].sourceAlphaBlendFactor = .zero
+          d.colorAttachments[0].destinationAlphaBlendFactor = .one
+        }
         if depth { d.depthAttachmentPixelFormat = Self.depthFormat }
         d.rasterSampleCount = samples
         return try? device.makeRenderPipelineState(descriptor: d)
       }
       guard let sky = pipeline("sky_v", "sky_f"), let ground = pipeline("ground_v", "ground_f"),
-        let decal = pipeline("decal_v", "decal_f", blend: true), let mesh = pipeline("mesh_v", "mesh_f"),
+        let decal = pipeline("decal_v", "decal_f", blend: true), let shade = pipeline("decal_v", "shade_f", shade: true), let mesh = pipeline("mesh_v", "mesh_f"),
         let maskRoad = pipeline("mask_v", "mask_f", mask: .red, color: .rgba8Unorm, samples: 1, depth: false),
         let maskPaint = pipeline("mask_v", "mask_f", mask: .green, color: .rgba8Unorm, samples: 1, depth: false)
       else { return nil }
+      self.shade = shade
       (self.sky, self.ground, self.decal, self.mesh, self.maskRoad, self.maskPaint) = (sky, ground, decal, mesh, maskRoad, maskPaint)
 
       func depth(_ compare: MTLCompareFunction, write: Bool) -> MTLDepthStencilState? {
@@ -732,7 +746,7 @@
       let th = theme, out = state.out
       // what goes with the car between frames (its shadow, the leads', the path), carried on below: the shadows under
       // everything else on the road, the path over it
-      var shadows: Decals = [], path: Decals = []
+      var shadows: Decals = [], path: Decals = [], shades: Decals = []
       var tris: Decals = []
       tris.reserveCapacity(40_000)
       for o in objs { Self.blobShadow(&shadows, o.x, o.y, o.heading, o.length, o.width, hgt) }
@@ -806,9 +820,9 @@
           let all = at.map { (SIMD3(Diorama.interp($0, arc, xs), Diorama.interp($0, arc, ys), Diorama.interp($0, arc, zs)), total - $0) }
             .filter { $0.0.x > Diorama.egoFront - 0.5 }
           if all.count >= 2 {
-            Self.ribbon(
-              &path, all.map(\.0), 0.85, th.path, all.map { 0.8 * (1 - Diorama.smoothstep(12, 70, $0.0.x)) * Diorama.smoothstep(0, tail, $0.1) },
-              soft: true, lift: 0.03)
+            let alphas = all.map { 0.8 * (1 - Diorama.smoothstep(12, 70, $0.0.x)) * Diorama.smoothstep(0, tail, $0.1) }
+            Self.ribbon(&path, all.map(\.0), 0.85, th.path, alphas, soft: true, lift: 0.03)
+            chevrons(&shades, all.map(\.0), alphas, accel: state.accel)
           }
         }
       }
@@ -820,6 +834,73 @@
       enc.setVertexBytes(&uniforms, length: MemoryLayout<FrameUniforms>.stride, index: 1)
       enc.setFragmentBytes(&uniforms, length: MemoryLayout<FrameUniforms>.stride, index: 0)
       drawFlat(enc, tris, stride: 7)
+      if !shades.isEmpty {
+        on.carry(&shades)
+        enc.setRenderPipelineState(shade)
+        drawFlat(enc, shades, stride: 7)
+      }
+    }
+
+    /// Chevrons along the planned path, flowing away from the car while it accelerates and back toward it while it
+    /// brakes, pointing the way they flow, as fast as the acceleration is hard: 2 m/s along the path per m/s². Faded
+    /// out as the acceleration nears zero, so a cruising plan's small ups and downs show none.
+    ///
+    /// They are the path's own colour darkened, painted into the path rather than over it: drawn with the shade
+    /// pipeline, they take (1 - value) of the path's colour times its alpha there (`alphas`, and the ribbon's soft
+    /// profile across), so they fade exactly as the path does, and at a value of 1 are the path. As tuned in
+    /// web/chevron-lab.html.
+    private func chevrons(_ out: inout Decals, _ pts: [SIMD3<Double>], _ alphas: [Double], accel: Double) {
+      // the path's hue and saturation at this value (V in HSV), mixed in this much; the tip's full angle, degrees
+      let value: Float = 0.9, opacity = 1.0, tipAngle = 113.0
+      let half = 0.85, length = half / tan(tipAngle / 2 * .pi / 180), thick = 0.5, spacing = 1.7, rate = 2.0, lift = 0.035
+
+      let now = CACurrentMediaTime()
+      let dt = flowAt.map { min(max(now - $0, 0), 0.1) } ?? 0
+      flowAt = now
+      flowAccel += (accel - flowAccel) * (1 - exp(-dt / 0.25))
+      let a = Diorama.clamp(flowAccel, -4, 4), dir: Double = a >= 0 ? 1 : -1
+      flow = (flow + rate * a * dt).truncatingRemainder(dividingBy: spacing)
+      let strength = opacity * Diorama.smoothstep(0.12, 0.7, abs(a))
+      guard strength > 0.01, value < 1 else { return }
+
+      var arc = [0.0]
+      for i in 1..<pts.count { arc.append(arc[i - 1] + hypot(pts[i].x - pts[i - 1].x, pts[i].y - pts[i - 1].y)) }
+      let total = arc[arc.count - 1]
+      let xs = pts.map(\.x), ys = pts.map(\.y), zs = pts.map(\.z)
+      // a point `lat` metres right of the path at `s` metres along it
+      func at(_ s: Double, _ lat: Double) -> SIMD3<Double> {
+        let s = Diorama.clamp(s, 0, total), e = 0.25
+        let x = Diorama.interp(s, arc, xs), y = Diorama.interp(s, arc, ys)
+        let dx = Diorama.interp(min(s + e, total), arc, xs) - Diorama.interp(max(s - e, 0), arc, xs)
+        let dy = Diorama.interp(min(s + e, total), arc, ys) - Diorama.interp(max(s - e, 0), arc, ys)
+        let l = max(hypot(dx, dy), 1e-9)
+        return SIMD3(x - dy / l * lat, y + dx / l * lat, Diorama.interp(s, arc, zs))
+      }
+      // the ribbon's soft profile across: solid to 0.35 of the half width, out to nothing at its edge
+      let across: [(lat: Double, a: Double)] = [(0, 1), (0.35 * half, 1), (half, 0)]
+      let take = theme.path * (1 - value)
+      func vertex(_ s: Double, _ lat: Double, _ k: Double) -> [Float] {
+        let p = at(s, lat), alpha = k * Diorama.interp(Diorama.clamp(s, 0, total), arc, alphas)
+        return [Float(p.x), Float(p.y), Float(p.z - lift), take.x, take.y, take.z, Float(alpha)]
+      }
+      var s = flow < 0 ? flow + spacing : flow
+      while s < total {
+        let k = strength * Diorama.smoothstep(0.3, 2, s)
+        if k > 0.005 {
+          let tip = s + dir * length / 2
+          for side in [-1.0, 1.0] {
+            // an arm, from the tip on the path's middle out to its side, `thick` metres deep the way it flows
+            for j in 0..<across.count - 1 {
+              let (l0, a0) = across[j], (l1, a1) = across[j + 1]
+              let f0 = tip - dir * length * l0 / half, f1 = tip - dir * length * l1 / half
+              let p0 = vertex(f0, side * l0, k * a0), p1 = vertex(f1, side * l1, k * a1)
+              let p2 = vertex(f1 - dir * thick, side * l1, k * a1), p3 = vertex(f0 - dir * thick, side * l0, k * a0)
+              for v in [p0, p1, p2, p0, p2, p3] { out.append(contentsOf: v) }
+            }
+          }
+        }
+        s += spacing
+      }
     }
 
     private func drawMeshes(
@@ -928,6 +1009,11 @@
       }
       fragment float4 decal_f(DecalOut in [[stage_in]], constant Frame& f [[buffer(0)]]) {
         return float4(apply_fog(in.c.rgb, in.w, f), in.c.a);
+      }
+      // what to take from the colour already drawn (the shade pipeline subtracts it), less as the fog thickens
+      fragment float4 shade_f(DecalOut in [[stage_in]], constant Frame& f [[buffer(0)]]) {
+        float t = clamp((length(in.w.xy - f.cam.xy) - f.fog.x) / (f.fog.y - f.fog.x), 0.0, 1.0);
+        return float4(in.c.rgb, in.c.a * (1.0 - t * t * (3.0 - 2.0 * t)));
       }
 
       struct MeshV { packed_short3 p; packed_char3 n; char e; packed_uchar3 c; uchar pad0, pad1, pad2; };

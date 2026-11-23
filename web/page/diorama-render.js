@@ -89,6 +89,17 @@ precision highp float;
 ${COMMON}
 in vec3 vw; in vec4 vc; out vec4 frag;
 void main() { frag = vec4(apply_fog(vc.rgb, vw), vc.a); }`],
+    // what to take from the colour already drawn (drawn subtracting), less as the fog thickens
+    shade: [`#version 300 es
+uniform mat4 mvp; in vec3 pos; in vec4 rgba; out vec3 vw; out vec4 vc;
+void main() { vw = pos; vc = rgba; gl_Position = mvp * vec4(pos, 1.0); }`, `#version 300 es
+precision highp float;
+${COMMON}
+in vec3 vw; in vec4 vc; out vec4 frag;
+void main() {
+  float f = clamp((length(vw.xy - cam.xy) - fog.x) / (fog.y - fog.x), 0.0, 1.0);
+  frag = vec4(vc.rgb, vc.a * (1.0 - f * f * (3.0 - 2.0 * f)));
+}`],
     mesh: [`#version 300 es
 uniform mat4 mvp; uniform mat4 model; uniform mat3 nmat; uniform float span;
 in vec3 pos; in vec3 nrm; in vec3 col; in float emis;
@@ -274,6 +285,10 @@ void main() {
       this.fixedView = null;  // 0 or 1 holds the road or the bird's-eye view, whatever the engine asks
       this.followHeading = false;  // the camera follows the car's heading through a spring, not rigidly
       this.heading = new HeadingSpring();
+      this.chevrons = true;  // off for a still frame, which has no time for them to flow in
+      // the chevrons on the planned path: how far along they have flowed (m), the acceleration they go by, smoothed,
+      // and when they last moved
+      this.flow = 0; this.flowAccel = 0; this.flowAt = null;
       this.prog = {};
       for (const [name, [vs, fs]] of Object.entries(SHADERS)) this.prog[name] = this.program(vs, fs);
       this.aniso = gl.getExtension('EXT_texture_filter_anisotropic');
@@ -543,7 +558,7 @@ void main() {
     }
 
     drawDecals(state, objs, hgt, common) {
-      const gl = this.gl, th = this.t, out = state.out, tris = [], own = [];
+      const gl = this.gl, th = this.t, out = state.out, tris = [], own = [], shades = [];
       // `own`: what goes with the car between frames (its shadow, the leads', the path), carried on below
       for (const o of objs) blobShadow(own, o.x, o.y, o.heading, o.L, o.W, hgt);
       blobShadow(own, (EGO_FRONT + EGO_REAR) / 2, 0, 0, EGO_FRONT - EGO_REAR, 1.85, hgt);
@@ -601,11 +616,16 @@ void main() {
           }
           // fading with distance, and out over its last metres, so wherever it is cut it has no square end
           const tail = Math.min(5, 0.5 * total);
-          if (res.length >= 2) ribbon(own, res, 0.85, th.path, res.map((p, i) => 0.8 * (1 - smoothstep(12, 70, p[0])) * smoothstep(0, tail, left[i])), true, 0.03);
+          if (res.length >= 2) {
+            const alphas = res.map((p, i) => 0.8 * (1 - smoothstep(12, 70, p[0])) * smoothstep(0, tail, left[i]));
+            ribbon(own, res, 0.85, th.path, alphas, true, 0.03);
+            if (this.chevrons) this.chevronsOn(shades, res, alphas, state.hud ? state.hud.a : 0);
+          }
         }
       }
       const on = this.on;
       for (let i = 0; i < own.length; i += 7) [own[i], own[i + 1]] = on.at(own[i], own[i + 1]);
+      for (let i = 0; i < shades.length; i += 7) [shades[i], shades[i + 1]] = on.at(shades[i], shades[i + 1]);
       // shadows under everything else on the road, the path over it
       const shadows = 30 * 7 * (objs.length + 1);
       tris.unshift(...own.slice(0, shadows));
@@ -617,7 +637,75 @@ void main() {
       gl.uniformMatrix4fv(d.u.mvp, false, gl4(this.vp));
       gl.enable(gl.BLEND); gl.blendFunc(gl.SRC_ALPHA, gl.ONE_MINUS_SRC_ALPHA); gl.depthMask(false);
       this.drawDynamic(d, tris, [['pos', 3], ['rgba', 4]]);
+      if (shades.length) {
+        const sh = this.prog.shade;
+        gl.useProgram(sh.p);
+        common(sh);
+        gl.uniformMatrix4fv(sh.u.mvp, false, gl4(this.vp));
+        // takes rgb * a from what is drawn already, and leaves its alpha
+        gl.blendEquation(gl.FUNC_REVERSE_SUBTRACT); gl.blendFuncSeparate(gl.SRC_ALPHA, gl.ONE, gl.ZERO, gl.ONE);
+        this.drawDynamic(sh, shades, [['pos', 3], ['rgba', 4]]);
+        gl.blendEquation(gl.FUNC_ADD);
+      }
       gl.depthMask(true); gl.disable(gl.BLEND);
+    }
+
+    // Chevrons along the planned path, flowing away from the car while it accelerates and back toward it while it
+    // brakes, pointing the way they flow, as fast as the acceleration is hard: 2 m/s along the path per m/s². Faded out
+    // as the acceleration nears zero, so a cruising plan's small ups and downs show none. They are the path's own colour
+    // darkened, painted into the path rather than over it: drawn subtracting, they take (1 - value) of the path's colour
+    // times its alpha there (`alphas`, and the ribbon's soft profile across), so they fade exactly as the path does, and
+    // at a value of 1 are the path. As tuned in web/chevron-lab.html; as DioramaRenderer.swift's chevrons.
+    chevronsOn(out, pts, alphas, accel) {
+      // the path's hue and saturation at this value (V in HSV), mixed in this much; the tip's full angle, degrees
+      const value = 0.9, opacity = 1, tipAngle = 113;
+      const half = 0.85, length = half / Math.tan(tipAngle / 2 * Math.PI / 180), thick = 0.5, spacing = 1.7, rate = 2, lift = 0.035;
+
+      const now = performance.now() / 1000;
+      const dt = this.flowAt == null ? 0 : Math.min(Math.max(now - this.flowAt, 0), 0.1);
+      this.flowAt = now;
+      this.flowAccel += (accel - this.flowAccel) * (1 - Math.exp(-dt / 0.25));
+      const a = Math.min(Math.max(this.flowAccel, -4), 4), dir = a >= 0 ? 1 : -1;
+      this.flow = (this.flow + rate * a * dt) % spacing;
+      const strength = opacity * smoothstep(0.12, 0.7, Math.abs(a));
+      if (strength <= 0.01 || value >= 1) return;
+
+      const arc = [0];
+      for (let i = 1; i < pts.length; i++) arc.push(arc[i - 1] + Math.hypot(pts[i][0] - pts[i - 1][0], pts[i][1] - pts[i - 1][1]));
+      const total = arc[arc.length - 1];
+      const xs = pts.map((p) => p[0]), ys = pts.map((p) => p[1]), zs = pts.map((p) => p[2]);
+      const clamp = (v) => Math.min(Math.max(v, 0), total);
+      // a point `lat` metres right of the path at `s` metres along it
+      const at = (s0, lat) => {
+        const s = clamp(s0), e = 0.25;
+        const x = E.interp(s, arc, xs), y = E.interp(s, arc, ys);
+        const dx = E.interp(Math.min(s + e, total), arc, xs) - E.interp(Math.max(s - e, 0), arc, xs);
+        const dy = E.interp(Math.min(s + e, total), arc, ys) - E.interp(Math.max(s - e, 0), arc, ys);
+        const l = Math.max(Math.hypot(dx, dy), 1e-9);
+        return [x - dy / l * lat, y + dx / l * lat, E.interp(s, arc, zs)];
+      };
+      // the ribbon's soft profile across: solid to 0.35 of the half width, out to nothing at its edge
+      const across = [[0, 1], [0.35 * half, 1], [half, 0]];
+      const take = this.t.path.map((c) => c * (1 - value));
+      const vertex = (s, lat, k) => {
+        const p = at(s, lat);
+        return [p[0], p[1], p[2] - lift, take[0], take[1], take[2], k * E.interp(clamp(s), arc, alphas)];
+      };
+      for (let s = this.flow < 0 ? this.flow + spacing : this.flow; s < total; s += spacing) {
+        const k = strength * smoothstep(0.3, 2, s);
+        if (k <= 0.005) continue;
+        const tip = s + dir * length / 2;
+        for (const side of [-1, 1]) {
+          // an arm, from the tip on the path's middle out to its side, `thick` metres deep the way it flows
+          for (let j = 0; j + 1 < across.length; j++) {
+            const [l0, a0] = across[j], [l1, a1] = across[j + 1];
+            const f0 = tip - dir * length * l0 / half, f1 = tip - dir * length * l1 / half;
+            const p0 = vertex(f0, side * l0, k * a0), p1 = vertex(f1, side * l1, k * a1);
+            const p2 = vertex(f1 - dir * thick, side * l1, k * a1), p3 = vertex(f0 - dir * thick, side * l0, k * a0);
+            out.push(...p0, ...p1, ...p2, ...p0, ...p2, ...p3);
+          }
+        }
+      }
     }
 
     drawMeshes(state, objs, hgt, common) {

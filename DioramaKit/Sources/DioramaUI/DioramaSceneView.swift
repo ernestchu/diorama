@@ -4,7 +4,7 @@
   import SwiftUI
 
   /// The drive as a live 3-D miniature, drawn natively in Metal from a feed's
-  /// messages, edge to edge, with the HUD over it. The same on a Mac and an
+  /// messages, edge to edge. The same on a Mac and an
   /// iPhone, and the same drawing as the page's. The player is the caller's, so
   /// that DioramaStats can show its timings elsewhere.
   public struct DioramaSceneView: View {
@@ -40,7 +40,6 @@
         DioramaMetalView(player: player, dark: colorScheme == .dark, camera: camera, planSeconds: planSeconds, cutAtLead: true, followHeading: true,
           carry: true)
           .ignoresSafeArea()
-        if let hud = player.hud { DioramaHUD(hud: hud).padding(14) }
         if modelInput && showInput, let picture = player.input {
           DioramaInputView(picture: picture)
             .frame(maxWidth: 512)
@@ -81,45 +80,6 @@
       player.showInput = input
       player.showDiorama = showDiorama
       feed.start(input: input) { [player] batch in await player.take(batch) }
-    }
-  }
-
-  /// The speed, the lead, the view, and the acceleration as a bar, as the page's HUD.
-  struct DioramaHUD: View {
-    let hud: DioramaPlayer.HUD
-
-    var body: some View {
-      VStack(alignment: .leading, spacing: 0) {
-        Text("\(hud.speed)")
-          .font(.system(size: 44, weight: .semibold).monospacedDigit())
-          .foregroundStyle(Color(white: 0.95))
-        Text("MPH").font(.system(size: 12)).kerning(1).foregroundStyle(Color(white: 0.66))
-        if let lead = hud.lead {
-          Text("lead \(lead) m").font(.system(size: 12)).foregroundStyle(Color(white: 0.77)).padding(.top, 6)
-        }
-        Text(hud.mode).font(.system(size: 12)).kerning(0.7).foregroundStyle(Color(white: 0.55)).padding(.top, 6)
-      }
-      .padding(.vertical, 12)
-      .padding(.leading, 16)
-      .padding(.trailing, 36)
-      .frame(minWidth: 150, alignment: .leading)
-      .overlay(alignment: .trailing) { accel.padding(14) }
-      .background(Color(red: 0.086, green: 0.09, blue: 0.1).opacity(0.86), in: .rect(cornerRadius: 12))
-      .allowsHitTesting(false)
-    }
-
-    /// Up from the middle accelerating, down braking.
-    private var accel: some View {
-      GeometryReader { geo in
-        let a = Diorama.clamp(hud.accel, -3.2, 3.2), h = geo.size.height
-        let top = (0.5 - max(a, 0) / 3.2 * 0.5) * h, bottom = (0.5 + min(a, 0) / 3.2 * 0.5) * h
-        let color = a > 0.2 ? Color(red: 0.35, green: 0.82, blue: 0.48) : a < -0.5 ? Color(red: 1, green: 0.35, blue: 0.32) : Color(white: 0.78)
-        ZStack(alignment: .top) {
-          Capsule().fill(Color(red: 0.23, green: 0.24, blue: 0.26))
-          Capsule().fill(color).frame(height: max(h - top - bottom, 0)).offset(y: top)
-        }
-      }
-      .frame(width: 6)
     }
   }
 
